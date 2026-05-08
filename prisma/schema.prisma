@@ -1,0 +1,406 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  extensions = [pgvector(map: "vector"), uuid_ossp(map: "uuid-ossp")]
+}
+
+// ─── HOUSEHOLD ───────────────────────────────────────────────────────────────
+
+model Household {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name        String
+  timezone    String   @default("UTC")
+  currency    String   @default("USD")
+  locale      String   @default("en")
+  avatarUrl   String?  @map("avatar_url")
+  inviteCode  String   @unique @default(dbgenerated("substring(md5(random()::text), 1, 8)")) @map("invite_code")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  members       HouseholdMember[]
+  groceryItems  GroceryItem[]
+  tasks         Task[]
+  events        CalendarEvent[]
+  expenses      Expense[]
+  reminders     Reminder[]
+  conversations AIConversation[]
+  memories      AIMemory[]
+  routines      Routine[]
+  mealPlans     MealPlan[]
+  bills         Bill[]
+  budgets       Budget[]
+  notifications Notification[]
+
+  @@map("households")
+}
+
+model HouseholdMember {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  householdId String   @map("household_id") @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  role        MemberRole @default(MEMBER)
+  displayName String   @map("display_name")
+  avatarUrl   String?  @map("avatar_url")
+  color       String   @default("#6366f1")
+  joinedAt    DateTime @default(now()) @map("joined_at")
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+
+  assignedTasks     Task[]          @relation("TaskAssignee")
+  createdTasks      Task[]          @relation("TaskCreator")
+  expenses          Expense[]
+  eventAttendees    EventAttendee[]
+  reminders         Reminder[]
+  conversations     AIConversation[]
+
+  @@unique([householdId, userId])
+  @@map("household_members")
+}
+
+enum MemberRole {
+  OWNER
+  ADMIN
+  MEMBER
+  CHILD
+}
+
+// ─── GROCERY ─────────────────────────────────────────────────────────────────
+
+model GroceryItem {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  householdId String   @map("household_id") @db.Uuid
+  name        String
+  quantity    Float?
+  unit        String?
+  category    String?
+  notes       String?
+  checked     Boolean  @default(false)
+  urgent      Boolean  @default(false)
+  addedBy     String?  @map("added_by") @db.Uuid
+  checkedBy   String?  @map("checked_by") @db.Uuid
+  checkedAt   DateTime? @map("checked_at")
+  estimatedCost Float? @map("estimated_cost")
+  recurringDays Int?   @map("recurring_days")
+  lastBoughtAt DateTime? @map("last_bought_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+
+  @@map("grocery_items")
+}
+
+// ─── TASKS ───────────────────────────────────────────────────────────────────
+
+model Task {
+  id          String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  householdId String     @map("household_id") @db.Uuid
+  title       String
+  description String?
+  status      TaskStatus @default(TODO)
+  priority    Priority   @default(MEDIUM)
+  dueDate     DateTime?  @map("due_date")
+  completedAt DateTime?  @map("completed_at")
+  assigneeId  String?    @map("assignee_id") @db.Uuid
+  creatorId   String?    @map("creator_id") @db.Uuid
+  category    String?
+  isRecurring Boolean    @default(false) @map("is_recurring")
+  recurringRule String?  @map("recurring_rule")
+  tags        String[]   @default([])
+  createdAt   DateTime   @default(now()) @map("created_at")
+  updatedAt   DateTime   @updatedAt @map("updated_at")
+
+  household Household       @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  assignee  HouseholdMember? @relation("TaskAssignee", fields: [assigneeId], references: [id])
+  creator   HouseholdMember? @relation("TaskCreator", fields: [creatorId], references: [id])
+
+  @@map("tasks")
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  DONE
+  CANCELLED
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+// ─── CALENDAR ────────────────────────────────────────────────────────────────
+
+model CalendarEvent {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  householdId String   @map("household_id") @db.Uuid
+  title       String
+  description String?
+  location    String?
+  startAt     DateTime @map("start_at")
+  endAt       DateTime @map("end_at")
+  allDay      Boolean  @default(false) @map("all_day")
+  color       String   @default("#6366f1")
+  category    String?
+  isRecurring Boolean  @default(false) @map("is_recurring")
+  recurringRule String? @map("recurring_rule")
+  externalId  String?  @map("external_id")
+  externalSource String? @map("external_source")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  household Household       @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  attendees EventAttendee[]
+
+  @@map("calendar_events")
+}
+
+model EventAttendee {
+  id       String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  eventId  String @map("event_id") @db.Uuid
+  memberId String @map("member_id") @db.Uuid
+
+  event  CalendarEvent   @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  member HouseholdMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, memberId])
+  @@map("event_attendees")
+}
+
+// ─── EXPENSES ────────────────────────────────────────────────────────────────
+
+model Expense {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  householdId String   @map("household_id") @db.Uuid
+  title       String
+  amount      Float
+  currency    String   @default("USD")
+  category    ExpenseCategory
+  paidById    String?  @map("paid_by_id") @db.Uuid
+  paidAt      DateTime @default(now()) @map("paid_at")
+  notes       String?
+  receiptUrl  String?  @map("receipt_url")
+  isRecurring Boolean  @default(false) @map("is_recurring")
+  recurringRule String? @map("recurring_rule")
+  tags        String[] @default([])
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  household Household        @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  paidBy    HouseholdMember? @relation(fields: [paidById], references: [id])
+
+  @@map("expenses")
+}
+
+enum ExpenseCategory {
+  GROCERIES
+  DINING
+  TRANSPORT
+  UTILITIES
+  HOUSING
+  HEALTHCARE
+  EDUCATION
+  ENTERTAINMENT
+  CLOTHING
+  PERSONAL_CARE
+  SUBSCRIPTIONS
+  SAVINGS
+  OTHER
+}
+
+model Budget {
+  id          String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  householdId String          @map("household_id") @db.Uuid
+  category    ExpenseCategory
+  amount      Float
+  period      BudgetPeriod    @default(MONTHLY)
+  startDate   DateTime        @map("start_date")
+  createdAt   DateTime        @default(now()) @map("created_at")
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+
+  @@unique([householdId, category, period])
+  @@map("budgets")
+}
+
+enum BudgetPeriod {
+  WEEKLY
+  MONTHLY
+  YEARLY
+}
+
+// ─── BILLS ───────────────────────────────────────────────────────────────────
+
+model Bill {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  householdId String   @map("household_id") @db.Uuid
+  name        String
+  amount      Float
+  dueDay      Int      @map("due_day")
+  category    String
+  isAutoPay   Boolean  @default(false) @map("is_auto_pay")
+  notes       String?
+  lastPaidAt  DateTime? @map("last_paid_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+
+  @@map("bills")
+}
+
+// ─── REMINDERS ───────────────────────────────────────────────────────────────
+
+model Reminder {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  householdId String   @map("household_id") @db.Uuid
+  memberId    String?  @map("member_id") @db.Uuid
+  title       String
+  body        String?
+  remindAt    DateTime @map("remind_at")
+  isRecurring Boolean  @default(false) @map("is_recurring")
+  recurringRule String? @map("recurring_rule")
+  sentAt      DateTime? @map("sent_at")
+  dismissed   Boolean  @default(false)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  household Household        @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  member    HouseholdMember? @relation(fields: [memberId], references: [id])
+
+  @@map("reminders")
+}
+
+// ─── MEAL PLANNING ───────────────────────────────────────────────────────────
+
+model MealPlan {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  householdId String   @map("household_id") @db.Uuid
+  weekStart   DateTime @map("week_start") @db.Date
+  meals       Json     @default("[]")
+  generatedBy String   @default("user") @map("generated_by")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+
+  @@unique([householdId, weekStart])
+  @@map("meal_plans")
+}
+
+// ─── ROUTINES ────────────────────────────────────────────────────────────────
+
+model Routine {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  householdId String   @map("household_id") @db.Uuid
+  name        String
+  description String?
+  schedule    String
+  steps       Json     @default("[]")
+  isActive    Boolean  @default(true) @map("is_active")
+  lastRunAt   DateTime? @map("last_run_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+
+  @@map("routines")
+}
+
+// ─── AI ──────────────────────────────────────────────────────────────────────
+
+model AIConversation {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  householdId String   @map("household_id") @db.Uuid
+  memberId    String?  @map("member_id") @db.Uuid
+  title       String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  household Household        @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  member    HouseholdMember? @relation(fields: [memberId], references: [id])
+  messages  AIMessage[]
+
+  @@map("ai_conversations")
+}
+
+model AIMessage {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  conversationId String   @map("conversation_id") @db.Uuid
+  role           MessageRole
+  content        String
+  toolCalls      Json?    @map("tool_calls")
+  toolResults    Json?    @map("tool_results")
+  tokens         Int?
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  conversation AIConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@map("ai_messages")
+}
+
+enum MessageRole {
+  USER
+  ASSISTANT
+  SYSTEM
+  TOOL
+}
+
+model AIMemory {
+  id          String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  householdId String                    @map("household_id") @db.Uuid
+  content     String
+  category    String
+  importance  Float                     @default(0.5)
+  embedding   Unsupported("vector(1536)")?
+  metadata    Json                      @default("{}")
+  expiresAt   DateTime?                 @map("expires_at")
+  createdAt   DateTime                  @default(now()) @map("created_at")
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+
+  @@map("ai_memories")
+}
+
+// ─── NOTIFICATIONS ───────────────────────────────────────────────────────────
+
+model Notification {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  householdId String   @map("household_id") @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  type        String
+  title       String
+  body        String?
+  data        Json?
+  read        Boolean  @default(false)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+
+  @@map("notifications")
+}
+
+// ─── SUBSCRIPTIONS ───────────────────────────────────────────────────────────
+
+model Subscription {
+  id                 String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId             String   @unique @map("user_id") @db.Uuid
+  stripeCustomerId   String?  @unique @map("stripe_customer_id")
+  stripeSubId        String?  @unique @map("stripe_sub_id")
+  plan               Plan     @default(FREE)
+  status             String   @default("active")
+  currentPeriodEnd   DateTime? @map("current_period_end")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  @@map("subscriptions")
+}
+
+enum Plan {
+  FREE
+  STARTER
+  FAMILY
+  PREMIUM
+}
