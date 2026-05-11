@@ -21,16 +21,252 @@
   --color-input: hsl(240 5.9% 90%);
   --color-ring: hsl(239 84% 67%);
   --radius: 0.75rem;
+
+  /* Extended palette */
+  --color-surface: hsl(240 5% 98%);
+  --color-surface-elevated: hsl(0 0% 100%);
+
+  /* Semantic animation durations */
+  --duration-fast: 120ms;
+  --duration-base: 200ms;
+  --duration-slow: 350ms;
+  --duration-page: 400ms;
+
+  /* Easing curves */
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-out-expo: cubic-bezier(0.19, 1, 0.22, 1);
+  --ease-in-out-quart: cubic-bezier(0.77, 0, 0.175, 1);
 }
 
 @layer base {
   * {
     border-color: var(--color-border);
+    -webkit-tap-highlight-color: transparent;
   }
+
+  html {
+    scroll-behavior: smooth;
+    text-rendering: optimizeLegibility;
+  }
+
   body {
     background-color: var(--color-background);
     color: var(--color-foreground);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    font-feature-settings: "rlig" 1, "calt" 1, "kern" 1;
   }
+
+  /* Beautiful custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: hsl(240 5.9% 82%);
+    border-radius: 9999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: hsl(240 5.9% 70%);
+  }
+
+  /* Text selection */
+  ::selection {
+    background-color: hsl(239 84% 67% / 0.15);
+    color: hsl(239 84% 45%);
+  }
+
+  /* Focus visible — only keyboard focus, not click */
+  :focus-visible {
+    outline: 2px solid hsl(239 84% 67%);
+    outline-offset: 2px;
+  }
+  :focus:not(:focus-visible) {
+    outline: none;
+  }
+}
+
+/* ─── Animations ──────────────────────────────────────────────────── */
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fade-in-down {
+  from { opacity: 0; transform: translateY(-8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slide-in-right {
+  from { opacity: 0; transform: translateX(-16px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes slide-in-left {
+  from { opacity: 0; transform: translateX(16px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes scale-in {
+  from { opacity: 0; transform: scale(0.95); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+@keyframes shimmer {
+  0%   { background-position: -400px 0; }
+  100% { background-position: 400px 0; }
+}
+
+@keyframes pulse-soft {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.6; }
+}
+
+@keyframes typing-dot {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+  30%            { transform: translateY(-4px); opacity: 1; }
+}
+
+@keyframes spin-slow {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+@keyframes bounce-subtle {
+  0%, 100% { transform: translateY(0); }
+  50%       { transform: translateY(-3px); }
+}
+
+@keyframes drawer-in {
+  from { transform: translateX(-100%); }
+  to   { transform: translateX(0); }
+}
+
+@keyframes drawer-out {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-100%); }
+}
+
+/* ─── Animation utility classes ──────────────────────────────────── */
+
+.animate-fade-in       { animation: fade-in      var(--duration-base) ease forwards; }
+.animate-fade-in-up    { animation: fade-in-up   var(--duration-slow) var(--ease-out-expo) forwards; }
+.animate-fade-in-down  { animation: fade-in-down var(--duration-base) ease forwards; }
+.animate-slide-in-right{ animation: slide-in-right var(--duration-slow) var(--ease-out-expo) forwards; }
+.animate-slide-in-left { animation: slide-in-left  var(--duration-slow) var(--ease-out-expo) forwards; }
+.animate-scale-in      { animation: scale-in     var(--duration-base) var(--ease-spring) forwards; }
+.animate-pulse-soft    { animation: pulse-soft   2s ease-in-out infinite; }
+
+.typing-dot {
+  animation: typing-dot 1.2s ease-in-out infinite;
+}
+.typing-dot:nth-child(2) { animation-delay: 0.2s; }
+.typing-dot:nth-child(3) { animation-delay: 0.4s; }
+
+/* ─── Stagger children ────────────────────────────────────────────── */
+.stagger-children > *:nth-child(1) { animation-delay: 0ms; }
+.stagger-children > *:nth-child(2) { animation-delay: 60ms; }
+.stagger-children > *:nth-child(3) { animation-delay: 120ms; }
+.stagger-children > *:nth-child(4) { animation-delay: 180ms; }
+.stagger-children > *:nth-child(5) { animation-delay: 240ms; }
+.stagger-children > *:nth-child(6) { animation-delay: 300ms; }
+
+/* ─── Skeleton shimmer ────────────────────────────────────────────── */
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    hsl(240 5% 93%) 25%,
+    hsl(240 5% 97%) 50%,
+    hsl(240 5% 93%) 75%
+  );
+  background-size: 400px 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+  border-radius: 6px;
+}
+
+/* ─── Glass morphism ──────────────────────────────────────────────── */
+.glass {
+  background: rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+}
+
+/* ─── Premium card hover ──────────────────────────────────────────── */
+.card-hover {
+  transition: transform var(--duration-base) var(--ease-spring),
+              box-shadow var(--duration-base) ease,
+              border-color var(--duration-base) ease;
+}
+.card-hover:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 30px -8px rgba(99, 102, 241, 0.18);
+  border-color: hsl(239 84% 67% / 0.2);
+}
+
+/* ─── Gradient text ───────────────────────────────────────────────── */
+.gradient-text {
+  background: linear-gradient(135deg, hsl(239 84% 60%) 0%, hsl(270 75% 60%) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.gradient-text-warm {
+  background: linear-gradient(135deg, hsl(25 95% 55%) 0%, hsl(0 84% 60%) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* ─── Prose for AI messages ────────────────────────────────────────── */
+.prose-chat {
+  font-size: 0.9rem;
+  line-height: 1.65;
+  color: hsl(240 10% 20%);
+}
+.prose-chat p { margin: 0.35em 0; }
+.prose-chat p:first-child { margin-top: 0; }
+.prose-chat p:last-child  { margin-bottom: 0; }
+.prose-chat strong { font-weight: 600; color: hsl(240 10% 10%); }
+.prose-chat ul, .prose-chat ol {
+  padding-left: 1.25em;
+  margin: 0.5em 0;
+}
+.prose-chat li { margin: 0.2em 0; }
+.prose-chat code {
+  background: hsl(240 5% 94%);
+  padding: 0.15em 0.4em;
+  border-radius: 4px;
+  font-size: 0.85em;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+/* ─── Radial gradient backgrounds ─────────────────────────────────── */
+.bg-hero {
+  background:
+    radial-gradient(ellipse 80% 60% at 50% -10%, hsl(239 84% 67% / 0.12) 0%, transparent 70%),
+    radial-gradient(ellipse 50% 40% at 80% 80%, hsl(270 75% 60% / 0.08) 0%, transparent 60%),
+    hsl(0 0% 100%);
+}
+
+.bg-app {
+  background: hsl(240 5% 98%);
+}
+
+/* ─── Micro interactions ──────────────────────────────────────────── */
+.press-effect {
+  transition: transform var(--duration-fast) ease;
+}
+.press-effect:active {
+  transform: scale(0.97);
 }
