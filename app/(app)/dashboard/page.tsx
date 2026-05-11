@@ -3,6 +3,8 @@ import { db } from '@/lib/db'
 import { redirect } from 'next/navigation'
 import { DashboardContent } from '@/components/dashboard/dashboard-content'
 
+export const dynamic = 'force-dynamic'
+
 export default async function DashboardPage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -15,6 +17,7 @@ export default async function DashboardPage() {
   if (!member) redirect('/onboarding')
 
   const householdId = member.householdId
+  const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1)
 
   const [pendingTasks, groceryItems, upcomingEvents, recentExpenses] = await Promise.all([
     db.task.findMany({
@@ -34,16 +37,13 @@ export default async function DashboardPage() {
       take: 5,
     }),
     db.expense.findMany({
-      where: {
-        householdId,
-        paidAt: { gte: new Date(new Date().setDate(1)) }, // This month
-      },
+      where: { householdId, paidAt: { gte: monthStart } },
       orderBy: { paidAt: 'desc' },
       take: 5,
     }),
   ])
 
-  const totalSpentThisMonth = recentExpenses.reduce((sum, e) => sum + e.amount, 0)
+  const totalSpentThisMonth = recentExpenses.reduce((sum: number, e: { amount: number }) => sum + e.amount, 0)
 
   return (
     <DashboardContent
@@ -53,6 +53,7 @@ export default async function DashboardPage() {
       groceryItems={groceryItems}
       upcomingEvents={upcomingEvents}
       totalSpentThisMonth={totalSpentThisMonth}
+      recentExpenses={recentExpenses}
     />
   )
 }

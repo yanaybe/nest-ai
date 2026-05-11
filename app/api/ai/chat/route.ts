@@ -103,9 +103,9 @@ export async function POST(req: NextRequest) {
       },
     })
 
-    return result.toDataStreamResponse({
-      headers: { 'X-Conversation-Id': convId },
-    })
+    const responseHeaders: Record<string, string> = {}
+    if (convId) responseHeaders['X-Conversation-Id'] = convId
+    return result.toDataStreamResponse({ headers: responseHeaders })
   } catch (err) {
     if (err instanceof z.ZodError) return NextResponse.json({ error: err.issues }, { status: 400 })
     console.error('AI chat error:', err)

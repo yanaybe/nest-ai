@@ -3,11 +3,24 @@ import { Inter } from 'next/font/google'
 import './globals.css'
 import { Providers } from './providers'
 
-const inter = Inter({ subsets: ['latin'] })
+const inter = Inter({
+  subsets: ['latin'],
+  display: 'swap',
+  variable: '--font-inter',
+})
 
 export const metadata: Metadata = {
-  title: 'Nest — AI Family Assistant',
-  description: 'The AI operating system for family life',
+  title: {
+    default: 'Nest — AI Family Assistant',
+    template: '%s · Nest',
+  },
+  description: 'The AI operating system for family life. Manage groceries, tasks, calendar, expenses, and more — all in one place.',
+  keywords: ['family assistant', 'AI assistant', 'household management', 'grocery list', 'family calendar'],
+  openGraph: {
+    title: 'Nest — AI Family Assistant',
+    description: 'The AI operating system for family life',
+    type: 'website',
+  },
   manifest: '/manifest.json',
   appleWebApp: {
     capable: true,
@@ -25,8 +38,8 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" suppressHydrationWarning>
-      <body className={inter.className}>
+    <html lang="en" suppressHydrationWarning className={inter.variable}>
+      <body className={`${inter.className} antialiased`}>
         <Providers>{children}</Providers>
       </body>
     </html>

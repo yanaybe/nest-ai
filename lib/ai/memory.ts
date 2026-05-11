@@ -1,7 +1,12 @@
 import OpenAI from 'openai'
 import { db } from '@/lib/db'
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+// Lazy-initialize to avoid build-time credential errors
+let _openaiClient: OpenAI | null = null
+function getClient() {
+  if (!_openaiClient) _openaiClient = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+  return _openaiClient
+}
 
 export async function storeMemory(
   householdId: string,
@@ -10,7 +15,7 @@ export async function storeMemory(
   importance: number = 0.5
 ) {
   try {
-    const embeddingResponse = await openai.embeddings.create({
+    const embeddingResponse = await getClient().embeddings.create({
       model: 'text-embedding-3-small',
       input: content,
     })
@@ -32,7 +37,7 @@ export async function searchMemories(
   limit: number = 5
 ): Promise<string[]> {
   try {
-    const embeddingResponse = await openai.embeddings.create({
+    const embeddingResponse = await getClient().embeddings.create({
       model: 'text-embedding-3-small',
       input: query,
     })
