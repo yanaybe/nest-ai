@@ -1,5 +1,24 @@
 'use client'
 
+// TODO [UX]:
+// The header notification bell shows a red dot permanently (hardcoded in JSX) but clicking it
+// does absolutely nothing. This is a broken UI element — users will tap it expecting a
+// notification panel and nothing happens. This is worse than not having the bell at all,
+// because it creates false expectation and erodes trust.
+//
+// Two options:
+// A) Remove the bell entirely until notifications are implemented
+// B) Implement a basic notification system (preferred):
+//    1. Create a GET /api/notifications endpoint that returns unread Notification records
+//    2. Poll every 60 seconds or use Supabase Realtime on the notifications table
+//    3. Show a dropdown with notification items (task assigned, bill due, reminder fired)
+//    4. Mark notifications as read when the panel is opened
+//    5. Only show the red dot when there are actually unread notifications
+//
+// The Notification model already exists in Prisma schema — it just needs to be wired up.
+// Notifications need to be CREATED somewhere too (e.g., when a task is assigned to a member,
+// when a bill is due within 3 days, when a reminder's remindAt time passes).
+
 import { useState } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import Link from 'next/link'
@@ -64,6 +83,10 @@ export function AppHeader({ member, household }: Props) {
 
         {/* Right side */}
         <div className="flex items-center gap-2 ml-auto">
+          {/* TODO [CRITICAL]: This notification bell is purely decorative. The red dot is
+            hardcoded and shows even when there are zero notifications. Clicking does nothing.
+            This must be either removed or implemented before user testing. See the module-level
+            TODO for the full notification system implementation plan. */}
           {/* Notification bell */}
           <button className="relative w-9 h-9 flex items-center justify-center rounded-xl hover:bg-gray-100 transition-colors text-gray-500 press-effect">
             <Bell size={17} />

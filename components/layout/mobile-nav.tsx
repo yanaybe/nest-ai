@@ -1,5 +1,35 @@
 'use client'
 
+// TODO [MOBILE]:
+// The bottom tab bar is the primary navigation for all mobile users, but has several issues:
+//
+// 1. ICON INCONSISTENCY in the "More" sheet:
+//    The primary nav uses Lucide icons (LayoutDashboard, MessageSquare, etc.) but the "More"
+//    sheet uses emoji icons ('💰', '🍽️', '🧾', '🔔', '⚙️'). This creates a jarring visual
+//    inconsistency — half the app feels modern, the other half feels like a prototype.
+//    Fix: Replace all emoji icons in the More sheet with Lucide icons.
+//
+// 2. NO active state in the More sheet:
+//    When the user is on /expenses, the bottom tab bar shows no active item (Expenses is in
+//    the "More" section, not the primary nav). The user has no visual indication of where they
+//    are. Fix: highlight the "More" button when any secondary page is active, and show the
+//    active item in the More sheet.
+//
+// 3. SAFE AREA handling uses `pb-safe` which requires Tailwind's safe-area plugin to be
+//    properly configured. Verify this is set up via `env(safe-area-inset-bottom)` in CSS.
+//    Without it, the nav overlaps the home indicator bar on iPhone, making the bottom items
+//    partially obscured.
+//
+// 4. NO haptic feedback:
+//    Mobile users expect vibration when tapping nav items. Add navigator.vibrate(10) on click
+//    for Android users (iOS Safari doesn't support it, so it silently no-ops).
+//
+// TODO [MOBILE]:
+// The "More" bottom sheet has no keyboard shortcut or back-navigation support. On Android,
+// pressing the hardware back button while the sheet is open should close it, not navigate
+// away from the page. Add a useEffect that listens for popstate events or the Android back
+// button to close the sheet gracefully.
+
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { LayoutDashboard, MessageSquare, ShoppingCart, CheckSquare, Calendar, MoreHorizontal } from 'lucide-react'
@@ -86,7 +116,11 @@ export function MobileNav() {
             <div className="w-10 h-1 bg-gray-200 rounded-full mx-auto mb-6" />
             <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-4 px-2">More features</p>
             <div className="grid grid-cols-4 gap-4">
-              {[
+              {/* TODO [MOBILE]: Replace these emoji icons with Lucide icons to match the
+              primary nav. Current icons: 💰 → DollarSign, 🍽️ → UtensilsCrossed,
+              🧾 → Receipt, 🔔 → Bell, ⚙️ → Settings. The inconsistency is immediately
+              noticeable and makes the app feel unfinished. */}
+            {[
                 { href: '/expenses', icon: '💰', label: 'Expenses' },
                 { href: '/meals',    icon: '🍽️', label: 'Meals' },
                 { href: '/bills',    icon: '🧾', label: 'Bills' },

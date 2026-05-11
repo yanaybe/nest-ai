@@ -1,3 +1,64 @@
+// TODO [CRITICAL]:
+// All testimonials and social proof numbers on this page are fabricated.
+// "2,000+ families", "4.9/5 rating", and all three testimonials (Sarah M., David K., Priya L.)
+// are invented characters with invented quotes. This is a serious trust and legal risk —
+// fake reviews can violate FTC guidelines and destroy credibility if a journalist or
+// investor notices.
+//
+// Required actions before any marketing spend or press coverage:
+// 1. Remove all fake testimonials and social proof numbers immediately
+// 2. Replace with real user quotes (even beta users or friends) with explicit consent
+// 3. Replace "2,000+ families" with accurate count, or remove entirely until real data exists
+// 4. Replace "4.9/5 rating" with actual aggregated rating from real users, or remove
+// 5. If no real users yet, replace testimonial section with a "What families will be able to do" section
+//    or an honest "Early access" framing
+// 6. Add disclaimer like "Beta results from early adopters" if using beta user data
+//
+// Business impact: One tweet calling out fake reviews can permanently damage brand trust.
+// Do not ship this to real users without fixing this.
+
+// TODO [GROWTH]:
+// The landing page has no conversion analytics whatsoever. There's no way to know which
+// section visitors drop off at, what the CTA click-through rate is, or which features
+// resonate. Without this, optimization is guesswork.
+//
+// Suggested implementation:
+// - Add Plausible or PostHog (privacy-friendly) for page-level analytics
+// - Track CTA button clicks as custom events (hero CTA, final CTA, nav CTA)
+// - Add scroll-depth tracking to identify where users stop reading
+// - A/B test the hero headline (current vs. "AI assistant for family life")
+// - Track signup source via UTM parameters on all marketing links
+//
+// Expected impact: 2-3x improvement in conversion rate within 60 days of data-driven optimization.
+
+// TODO [MONETIZATION]:
+// There is no pricing page linked anywhere on the landing page. Visitors cannot understand
+// what they're committing to, what's free vs. paid, or how Nest makes money. This is a
+// major conversion killer for privacy-conscious users and investors.
+//
+// Suggested implementation:
+// - Add /pricing page with clear Free / Starter / Family / Premium tier comparison
+// - Add "Pricing" link in nav
+// - Add pricing teaser in CTA section ("Free forever for 1 household · Pro plans from $9/mo")
+// - Schema.prisma already has Subscription + Plan models — wire them up
+// - Consider: Free = 1 household / 50 AI msgs/mo, Pro = unlimited msgs + receipt scanning
+//
+// Expected impact: Pricing clarity reduces drop-off and signals product legitimacy to investors.
+
+// TODO [UX]:
+// The hero app preview is a static mockup with hardcoded skeleton data. It looks beautiful
+// but tells nothing real about the product. Visitors can't try it, click anything, or see
+// the AI actually work. The chat demo in the AI section is similarly static text.
+//
+// Suggested improvements:
+// - Replace static preview with an animated walkthrough (CSS keyframes or Framer Motion)
+// - Show a brief looping demo: AI receives a message → items appear on grocery list
+// - Add an interactive "Try Nest" box where visitors can type a query and see a canned response
+//   (no real API call needed — just pattern-match strings to show compelling results)
+// - Add a video demo link (even a 60-second Loom video dramatically increases conversion)
+//
+// Expected impact: Interactive previews increase conversion by ~40% on SaaS landing pages.
+
 import Link from 'next/link'
 import {
   Home, MessageSquare, ShoppingCart, CheckSquare, Calendar,
@@ -64,6 +125,11 @@ const features = [
   },
 ]
 
+// TODO [CRITICAL]:
+// These testimonials are entirely fabricated. Replace with real user quotes before launch.
+// See the top-of-file TODO for full context on why this is a critical issue.
+// Until real quotes exist, either remove this section or replace with a "What you'll be able to do"
+// benefits list, or a "Join X beta users" invite-focused section.
 const testimonials = [
   {
     name: 'Sarah M.',
@@ -271,6 +337,11 @@ export default function LandingPage() {
       {/* ─── Social Proof Bar ───────────────────────────────────── */}
       <section className="border-y border-gray-100 bg-gray-50 py-6 px-4">
         <div className="max-w-4xl mx-auto flex flex-col sm:flex-row items-center justify-center gap-6 sm:gap-12 text-center">
+          {/* TODO [CRITICAL]:
+            "4.9/5 rating" and "2,000+ families" are fabricated numbers. Replace with accurate
+            metrics pulled from your actual database/analytics. If you have no data yet, replace
+            with honest feature highlights like "End-to-end encrypted" and "Setup in 2 minutes".
+            Remove all quantified claims until you have real numbers to back them up. */}
           {[
             { icon: Star, text: '4.9 / 5 rating', sub: 'from early adopters' },
             { icon: Users, text: '2,000+ families', sub: 'actively using Nest' },
@@ -430,6 +501,9 @@ export default function LandingPage() {
           <h2 className="text-4xl sm:text-5xl font-bold text-gray-900 tracking-tight mb-5">
             Ready to simplify<br />family life?
           </h2>
+          {/* TODO [CRITICAL]: "Join thousands of families" is fabricated. Replace with
+            honest copy, e.g. "Be part of our growing community of families" or wait until
+            you have thousands of real users. */}
           <p className="text-lg text-gray-500 mb-8 max-w-lg mx-auto">
             Join thousands of families who use Nest to stay organized, reduce stress, and spend less time on logistics.
           </p>
@@ -454,6 +528,11 @@ export default function LandingPage() {
             <span className="font-bold text-gray-800 text-sm">Nest</span>
           </div>
           <p className="text-xs text-gray-400">© 2026 Nest. The AI operating system for family life.</p>
+          {/* TODO [SECURITY]: Privacy and Terms links go to "#" which means they don't exist.
+            These are legally required documents if you're collecting user data (which you are —
+            emails, household data, expenses). You need actual policies before any public launch.
+            At minimum, generate basic policies via Termly or a lawyer, then link to /privacy and /terms.
+            Failure to have these can expose you to GDPR/CCPA liability. */}
           <div className="flex items-center gap-4 text-xs text-gray-400">
             <a href="#" className="hover:text-gray-600 transition-colors">Privacy</a>
             <a href="#" className="hover:text-gray-600 transition-colors">Terms</a>

@@ -1,5 +1,33 @@
 'use client'
 
+// TODO [UX]:
+// The grocery list is the most-used feature for most households — it's checked multiple
+// times per week during shopping. The current UI works but misses features that matter in the
+// real-world context (shopping in a store, one hand on a cart):
+//
+// 1. NO item grouping by store aisle/section:
+//    When shopping, users need items grouped by where they are in the store (produce, dairy,
+//    bakery, etc.) — not sorted by urgency. The category filter helps but doesn't auto-group.
+//    Add: "Shopping mode" that groups items by category with large, tap-friendly checkboxes.
+//
+// 2. NO quick-add via voice or barcode:
+//    The add form requires 4 taps minimum (Add item → type name → category → add).
+//    In a kitchen, users want to say "milk" or scan a barcode and have it added instantly.
+//    Consider: Web Speech API for voice add, and a barcode scanning button using the camera.
+//
+// 3. NO shared shopping — when multiple family members shop simultaneously, they can both
+//    check the same item without knowing the other did it. Need real-time sync so both
+//    users see the same checked state (Supabase realtime subscriptions).
+//
+// 4. NO price tracking — estimatedCost is in the schema but not shown. If all items have
+//    estimated costs, show a running total ("Estimated total: ~$47") that updates as you check off.
+//
+// TODO [PERFORMANCE]:
+// The grocery list loads all items (unchecked + 7-day checked history) on initial render.
+// For households that have been using Nest for months, this could be hundreds of items.
+// The component uses useOptimistic correctly for check/uncheck, but the initial data fetch
+// (server-side) has no pagination. Add: virtual scrolling or pagination for large lists.
+
 import { useState, useOptimistic, useTransition } from 'react'
 import type { GroceryItem } from '@prisma/client'
 import { ShoppingCart, Plus, Flame, Trash2, X, Check, Loader2 } from 'lucide-react'
@@ -86,6 +114,12 @@ export function GroceryList({ initialItems }: Props) {
     }
   }
 
+  // TODO [UX]: Same pattern as task deletion — instant delete with no undo.
+  // For grocery items specifically, accidental deletion is very common (the delete icon
+  // is next to the item row and appears on hover, which on touch devices is always visible).
+  // Add: undo toast with 4-second window before the API delete is actually fired.
+  // Pattern: show "Item removed · Undo" toast → start 4s timer → if user taps Undo, cancel
+  // the fetch and restore state. This is the gold standard for destructive actions in mobile apps.
   async function deleteItem(id: string) {
     setItems(prev => prev.filter(i => i.id !== id))
     try {
@@ -130,6 +164,11 @@ export function GroceryList({ initialItems }: Props) {
     }
   }
 
+  // TODO [PERFORMANCE]: clearChecked() fires one DELETE request per item — if there are 20
+  // checked items, that's 20 parallel HTTP requests and 20 DB operations. Add a bulk delete
+  // API endpoint: DELETE /api/grocery with { ids: string[] } that runs a single
+  // db.groceryItem.deleteMany({ where: { id: { in: ids }, householdId } }) in one round-trip.
+  // Also: same undo pattern applies here — "Cleared 12 items · Undo" toast.
   async function clearChecked() {
     setClearingChecked(true)
     const checkedItems = items.filter(i => i.checked)

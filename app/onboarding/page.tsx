@@ -1,5 +1,56 @@
 'use client'
 
+// TODO [UX]:
+// The current onboarding is purely functional — it collects data but does NOT sell the user
+// on Nest's value. A new user who just signed up needs to feel excited, not like they're
+// filling out a form. First impressions set retention.
+//
+// Current problems:
+// 1. No value proposition reinforcement — the user just came from a marketing page and now sees
+//    a plain "Get started" card with no reminder of why Nest is amazing
+// 2. No onboarding "hook" moment — users don't experience any AI magic during setup
+// 3. No guidance on what a good household setup looks like (examples, templates)
+// 4. The "Timezone" / "Currency" fields appear before the user even understands the product
+//
+// Suggested improvements:
+// - Step 1: Show an animated "Welcome" screen with a brief value statement ("Nest learns your
+//   household's patterns and helps you stay organized effortlessly")
+// - Add AI-generated starter setup: after household creation, auto-populate 3 sample tasks,
+//   a grocery list, and an upcoming event so the dashboard feels alive immediately
+// - Add "Quick templates" for common household types: "Young couple", "Family with kids", "Roommates"
+//   that pre-configure categories and common tasks
+// - Move timezone/currency to Settings — most users don't care and it adds friction to the
+//   most critical signup moment
+// - Show a preview of what the dashboard will look like after setup
+//
+// Expected impact: Reducing onboarding steps and showing value earlier should improve
+// activation rate (users who take a meaningful action within 7 days) by 30-50%.
+
+// TODO [GROWTH]:
+// There is no referral or sharing mechanism at the end of onboarding. After a user creates
+// a household, they immediately want to invite their family — but there's no "Invite your
+// family" step in the flow. The invite code exists in the DB but isn't surfaced here.
+//
+// Suggested addition:
+// - Add Step 4: "Invite your family" that shows the invite code prominently with a copy button
+//   and a "Share via WhatsApp / iMessage" button (native Web Share API)
+// - Show who has joined in real-time as they accept the invite (via polling or SSE)
+// - Frame it as: "Nest is better with the whole family. Invite them now."
+// - Add viral loop: remind the household creator to invite remaining members in the first
+//   3 dashboard visit notifications
+//
+// Expected impact: Each household inviting 1+ additional member doubles your active user count
+// without any additional acquisition cost. This is the highest-leverage growth lever in the product.
+
+// TODO [MOBILE]:
+// The onboarding page uses `min-h-screen` which doesn't account for the iOS Safari address bar
+// height shifting as the user scrolls. On certain devices, the "Let's go!" button may be hidden
+// behind the browser chrome.
+//
+// Fix: Use `min-h-[100dvh]` (dynamic viewport height) instead of `min-h-screen` to ensure
+// the page fills the actual visible area on mobile browsers.
+// Also verify the form doesn't get obscured by the virtual keyboard on iOS when typing.
+
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Home, Users, ChevronRight, ArrowLeft, Check, Loader2 } from 'lucide-react'
@@ -10,6 +61,10 @@ import { cn } from '@/lib/utils'
 
 type Flow = 'none' | 'create' | 'join'
 
+// TODO [UX]: Hardcoded timezone list misses most of the world. Use the browser's
+// Intl.supportedValuesOf('timeZone') API to populate a full, auto-detected list,
+// or default to the user's detected timezone via Intl.DateTimeFormat().resolvedOptions().timeZone
+// and only show the selector as an "override" option. Most users just want the right default.
 const TIMEZONES = ['UTC', 'America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles', 'Europe/London', 'Europe/Paris', 'Asia/Jerusalem', 'Asia/Tokyo', 'Australia/Sydney']
 const CURRENCIES = [
   { code: 'USD', label: 'USD — US Dollar' },
@@ -113,6 +168,14 @@ export default function OnboardingPage() {
           return
         }
       }
+      // TODO [GROWTH]: After successful household creation, instead of going straight to /dashboard,
+      // go to a dedicated "invite family" step or a "your household is ready" celebration screen
+      // that shows the invite code prominently and encourages sharing. This is the highest-ROI
+      // moment to get viral sharing — users are most excited right after setup completes.
+      //
+      // Also consider: trigger an AI-generated "starter pack" here — auto-create 3 sample tasks
+      // ("Welcome to Nest!", "Set up your grocery list", "Add your first event") so the dashboard
+      // doesn't look empty on first load. Empty state is the #1 reason new users churn.
       router.push('/dashboard')
     } catch {
       setError('Something went wrong. Please try again.')
@@ -357,6 +420,10 @@ export default function OnboardingPage() {
           )}
         </div>
 
+        {/* TODO [SECURITY]: "terms of service and privacy policy" are not linked — they link
+          to nothing. These are legally required before collecting user data. The user is
+          explicitly consenting to terms that don't exist. Replace with actual /terms and /privacy
+          links before any public launch. This is a legal liability. */}
         <p className="text-center text-xs text-gray-400 mt-6">
           By continuing you agree to Nest&apos;s terms of service and privacy policy.
         </p>

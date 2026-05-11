@@ -1,3 +1,63 @@
+// TODO [SCALABILITY]:
+// The schema is well-structured for an MVP but is missing database indexes on all the columns
+// that are frequently queried with WHERE clauses. Without indexes, every query does a full
+// table scan — performance degrades linearly as data grows.
+//
+// Critical missing indexes (add via Prisma @@index):
+//   Task:          (householdId, status), (householdId, assigneeId), (householdId, dueDate)
+//   GroceryItem:   (householdId, checked), (householdId, urgent)
+//   CalendarEvent: (householdId, startAt)
+//   Expense:       (householdId, paidAt), (householdId, category)
+//   AIMemory:      (householdId) — for pre-filtering before vector search
+//   Notification:  (householdId, userId, read)
+//   Reminder:      (householdId, remindAt, dismissed)
+//   AIConversation:(householdId, memberId)
+//
+// Estimated impact: 10-100x query speedup for common operations at scale.
+// These indexes are cheap to add now and expensive to add retroactively on a large dataset.
+
+// TODO [SECURITY]:
+// The Household.inviteCode is generated as: substring(md5(random()::text), 1, 8)
+// This gives 8 hex characters (lowercase a-f + 0-9 = 16 chars) = 16^8 = 4.3 billion combinations.
+// While large, the code is MD5-based and theoretically predictable if the random seed is known.
+// More importantly: there's no brute-force protection on the join endpoint. An attacker could
+// enumerate invite codes to hijack household access.
+//
+// Fixes:
+// 1. Rate limit the /api/household/join endpoint by IP (add to apiRatelimit)
+// 2. Add join attempt logging and lockout after N failed attempts
+// 3. Generate invite codes using crypto.randomBytes(4).toString('hex') instead of MD5(random())
+//    for true cryptographic randomness
+// 4. Consider time-limited invite codes (expire after 7 days) or single-use codes
+
+// TODO [SCALABILITY]:
+// Several models use Json fields for complex data:
+//   MealPlan.meals: Json — meal plan data for the week
+//   Routine.steps: Json — routine step definitions
+//   AIMessage.toolCalls: Json, AIMessage.toolResults: Json
+// These Json columns cannot be indexed, cannot be queried efficiently, and create schema
+// drift (the application code must maintain its own type definitions for the JSON shape).
+//
+// Suggested refactoring:
+// - MealPlan.meals → MealPlanEntry model (mealPlanId, day, mealType, description)
+// - Routine.steps → RoutineStep model (routineId, order, title, description)
+// This makes the data queryable and enables features like "which routines have a 'vacuum' step?"
+
+// TODO [MONETIZATION]:
+// The Subscription model exists with FREE/STARTER/FAMILY/PREMIUM plans but:
+// 1. It's linked to userId, not householdId — a user could have a subscription but their
+//    household members don't benefit from it. The billing unit should be per-household.
+// 2. There's no integration with Stripe — stripeCustomerId and stripeSubId columns exist
+//    but no webhooks, checkout flow, or plan enforcement anywhere in the codebase
+// 3. Plan limits are not defined anywhere — what does "FAMILY plan" actually unlock?
+//
+// Required work:
+// a) Migrate Subscription to be linked to householdId (not userId)
+// b) Define plan limits in a config file (e.g., lib/plans.ts)
+// c) Implement Stripe checkout: /api/billing/checkout POST
+// d) Implement Stripe webhooks: /api/billing/webhook to update plan status
+// e) Enforce limits in API routes (check plan before processing AI requests)
+
 generator client {
   provider        = "prisma-client-js"
   previewFeatures = ["postgresqlExtensions"]
@@ -110,9 +170,19 @@ model Task {
   category    String?
   isRecurring Boolean    @default(false) @map("is_recurring")
   recurringRule String?  @map("recurring_rule")
+  // TODO [UX]: recurringRule is stored as a string (presumably iCal RRULE format) but there's
+  // no UI to create recurring tasks and no background job to auto-create the next occurrence
+  // when a recurring task is completed. The field exists but the feature doesn't.
+  // Implement: a cron job (Vercel Cron) that checks daily for completed recurring tasks
+  // and creates the next instance based on the RRULE pattern.
   tags        String[]   @default([])
   createdAt   DateTime   @default(now()) @map("created_at")
   updatedAt   DateTime   @updatedAt @map("updated_at")
+
+  // TODO [SCALABILITY]: Add indexes for common query patterns:
+  // @@index([householdId, status])
+  // @@index([householdId, assigneeId])
+  // @@index([householdId, dueDate])
 
   household Household       @relation(fields: [householdId], references: [id], onDelete: Cascade)
   assignee  HouseholdMember? @relation("TaskAssignee", fields: [assigneeId], references: [id])
@@ -265,6 +335,19 @@ model Reminder {
   isRecurring Boolean  @default(false) @map("is_recurring")
   recurringRule String? @map("recurring_rule")
   sentAt      DateTime? @map("sent_at")
+  // TODO [HIGH PRIORITY]: The `sentAt` field tracks when a reminder was "sent" but there is
+  // no actual reminder sending infrastructure. Reminders exist in the DB and display in the UI
+  // but they never proactively notify the user via push notification, email, or SMS.
+  // A reminder that doesn't remind is just a calendar entry.
+  //
+  // Implementation options (in order of complexity):
+  // 1. Browser push notifications via Web Push API + service worker (requires PWA setup)
+  // 2. Email via Resend/SendGrid when remindAt time passes (requires a cron job)
+  // 3. SMS via Twilio (highest friction for setup but most reliable delivery)
+  //
+  // Minimum viable: Set up a Vercel Cron job that runs every 5 minutes, queries for
+  // reminders where remindAt <= now() AND sentAt IS NULL AND dismissed = false,
+  // sends a push/email notification, and updates sentAt = now().
   dismissed   Boolean  @default(false)
   createdAt   DateTime @default(now()) @map("created_at")
 
@@ -357,6 +440,13 @@ model AIMemory {
   embedding   Unsupported("vector(1536)")?
   metadata    Json                      @default("{}")
   expiresAt   DateTime?                 @map("expires_at")
+  // TODO [SCALABILITY]: Add HNSW index for vector similarity search:
+  // This must be done via a raw SQL migration, not Prisma schema, since Prisma doesn't
+  // support pgvector index definitions in schema.prisma:
+  //   CREATE INDEX ai_memories_embedding_idx ON ai_memories
+  //   USING hnsw (embedding vector_cosine_ops) WITH (m = 16, ef_construction = 64);
+  // Without this index, vector search is O(n) across all memories.
+  // Also add: @@index([householdId]) for pre-filtering before the vector scan.
   createdAt   DateTime                  @default(now()) @map("created_at")
 
   household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)

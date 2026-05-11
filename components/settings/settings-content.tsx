@@ -1,5 +1,42 @@
 'use client'
 
+// TODO [UX]:
+// The settings page has a "Notifications" section in the sidebar (type Section includes 'notifications')
+// but if it's not rendered with actual notification preference controls, it's a dead end.
+// Notification settings should include:
+// - Email notifications: task assignments, upcoming events, bill reminders (on/off per type)
+// - Push notifications: opt-in for browser push (requires service worker)
+// - Digest frequency: daily digest email / weekly summary
+// - Quiet hours: no notifications between 10pm-7am
+//
+// Without notification settings, users can't control when they hear from Nest.
+// Over-notification causes uninstalls; under-notification makes the product forgettable.
+
+// TODO [SECURITY]:
+// The settings page shows the household invite code in plaintext. Any household member
+// can see and share this code, allowing unlimited people to join the household.
+// Consider:
+// 1. Adding role-based access: only OWNER/ADMIN can see/regenerate the invite code
+// 2. Adding "Regenerate invite code" button to invalidate the current code after a join
+// 3. Adding time-limited invite links (generate a URL that expires in 24-48 hours)
+// 4. Showing a count of "X people have joined with this code" to help owners track access
+
+// TODO [FEATURE]:
+// The settings page has no "Danger zone" / account deletion section. GDPR requires that
+// users can delete their accounts and all associated data. Currently there's no way to:
+// - Leave a household
+// - Delete a household (as owner)
+// - Delete your account
+// These are legal requirements for any product available to EU users, and good UX for all users.
+
+// TODO [UX]:
+// The member management section likely shows all household members but has no ability to:
+// - Remove a member from the household
+// - Change a member's role (promote to Admin, demote to Member)
+// - Transfer household ownership
+// These are day-one needs for any real household: the original creator may not always be
+// the person who manages the household.
+
 import { useState } from 'react'
 import type { Household, HouseholdMember } from '@prisma/client'
 import {

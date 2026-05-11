@@ -3,6 +3,44 @@ import { z } from 'zod'
 import { db } from '@/lib/db'
 import { ExpenseCategory, Priority, TaskStatus } from '@prisma/client'
 
+// TODO [AI]:
+// The current tool set covers the basics but is missing high-value tools that would make Nest
+// feel genuinely intelligent vs. just a voice interface for CRUD operations:
+//
+// Missing tools (high impact):
+// 1. searchHouseholdContext — "Does anyone have a nut allergy?" requires searching memories
+//    AND existing tasks/notes. A dedicated search tool prevents the AI from hallucinating answers.
+// 2. getBills — AI can't answer "when is the electricity bill due?" without this tool
+// 3. getSpendinvgInsights — complex spending analysis: "are we spending more than last month?"
+//    should return trend data, not just current month totals
+// 4. updateTask — AI can't mark a task done. User says "mark 'buy groceries' as done" and
+//    the AI can only create new tasks, not update existing ones
+// 5. deleteGroceryItem — AI can't remove items from the list ("we already bought milk")
+// 6. getMealPlan — AI can't tell you what's planned for dinner tonight
+// 7. getHouseholdMembers — AI currently uses hardcoded member list from system prompt, should
+//    be dynamic to handle mid-conversation member changes
+//
+// TODO [SECURITY]:
+// All tools execute database mutations using the householdId injected at call time.
+// This is correct and prevents cross-household data access. However, there's no audit log
+// of what actions the AI took. If the AI accidentally deletes the wrong items or creates
+// duplicate tasks, there's no way to know it happened or to reverse it.
+//
+// Suggested fix:
+// - Add an AIAction log table: { id, householdId, memberId, tool, input, output, createdAt }
+// - Log every tool execution (success and failure) to this table
+// - Add a "Nest actions" feed in Settings so users can see what the AI did and undo it
+// - This also gives you valuable data about which tools are most used (informs product roadmap)
+
+// TODO [PERFORMANCE]:
+// createTools() is called on every API request and recreates the entire tool object from scratch.
+// While the tools themselves are lightweight (just schema + function definitions), the DB calls
+// inside execute() functions are not cached. If a user asks multiple questions in one session
+// that all query the same data (e.g., multiple grocery questions), each call hits the DB fresh.
+//
+// Suggested: Add a per-request context cache using a WeakMap or simple closure so that within
+// a single streaming session, repeated reads of the same data don't hit the DB multiple times.
+
 // All tools receive householdId as context — injected at call time, not from AI
 export function createTools(householdId: string, memberId: string) {
   return {
@@ -57,6 +95,11 @@ export function createTools(householdId: string, memberId: string) {
         const toUpdate = items.filter((i) =>
           itemNames.some((n) => i.name.toLowerCase().includes(n.toLowerCase()))
         )
+        // TODO [AI]: Fuzzy matching via .includes() can cause false positives — "milk" matches
+        // "buttermilk" and "almond milk" simultaneously. Use a proper fuzzy match (Levenshtein distance
+        // or a similarity threshold) and return ambiguous matches to the user for confirmation
+        // rather than silently checking off the wrong item. Wrongly marking bought items as done
+        // is a trust-destroying failure mode.
         await db.groceryItem.updateMany({
           where: { id: { in: toUpdate.map((i) => i.id) } },
           data: { checked: true, checkedBy: memberId, checkedAt: new Date(), lastBoughtAt: new Date() },
@@ -104,6 +147,12 @@ export function createTools(householdId: string, memberId: string) {
       },
     }),
 
+    // TODO [AI]: Missing critical task management tools:
+    // - updateTask: change status, priority, dueDate, or assignee on an existing task
+    //   (Users say "mark the dentist task as done" and the AI can't do it)
+    // - completeTask: shorthand for marking a specific task DONE by name
+    // - deleteTask: remove a task the user no longer needs
+    // Without these, the AI can CREATE tasks but never close the loop. This is a fundamental gap.
     getTasks: tool({
       description: 'Get tasks for the household',
       parameters: z.object({

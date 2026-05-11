@@ -1,5 +1,28 @@
 'use client'
 
+// TODO [UX]:
+// The sidebar has no notification badge system. When a new task is assigned, a reminder fires,
+// or a bill is due, there's no visual indicator in the nav. Users have to visit each page
+// manually to discover what needs attention.
+//
+// Suggested: Add unread badges to nav items:
+// - Tasks: count of overdue tasks (red badge)
+// - Grocery: count of urgent items (red badge)
+// - Bills: count of bills due within 7 days (amber badge)
+// - Reminders: count of due/upcoming reminders (blue badge)
+// Fetch badge counts in the layout server component (already fetching member/household data)
+// and pass them as props to AppSidebar.
+//
+// TODO [UX]: The sidebar profile card at the bottom links to /settings when clicked, but
+// it's visually indistinguishable from a non-clickable element. Add a subtle "→" icon or
+// "Edit profile" text to make it obviously interactive.
+
+// TODO [REFACTOR]: The navSections array is defined inside this module. If the mobile drawer
+// in app-header.tsx needs the same navigation structure, it redefines its own `mobileNavItems`
+// array (same items, different format). This means any nav change requires updating two places.
+// Extract a shared `getNavItems()` function in a separate file (e.g., lib/nav-config.ts)
+// that both components import, ensuring the navigation structure stays in sync.
+
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import type { Household, HouseholdMember } from '@prisma/client'

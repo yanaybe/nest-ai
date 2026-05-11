@@ -1,5 +1,31 @@
 'use client'
 
+// TODO [UX]:
+// The task list is missing several features that users will immediately expect from a task manager:
+//
+// 1. NO search/filter by text — with 50+ tasks, you can't find anything
+//    Add: text search input that filters by title + description client-side (no extra DB calls)
+//
+// 2. NO drag-and-drop reordering — users want to manually prioritize their list
+//    Add: @dnd-kit/sortable for drag-and-drop with persistence via a `sortOrder` field
+//
+// 3. NO inline editing — to change a task title or due date, you have to delete and recreate
+//    Add: click-to-edit on any task field (title, due date, assignee) with optimistic updates
+//
+// 4. NO bulk actions — can't mark multiple tasks done, delete multiple, or reassign multiple
+//    Add: checkbox select mode with "Mark done", "Delete", "Reassign" bulk actions
+//
+// 5. NO recurring task support — the schema has `isRecurring` and `recurringRule` but the UI
+//    has no way to create recurring tasks. This is a critical missing feature for chores.
+//
+// TODO [REFACTOR]:
+// The `tasks` state is initialized from `initialTasks` (server-fetched) but mutations update
+// it locally. If another household member adds a task between page loads, the current user
+// won't see it unless they refresh. Consider:
+// - Polling with useEffect + setInterval every 30s
+// - Or better: Supabase realtime subscriptions on the tasks table for live updates
+// This is especially important in a household app where multiple people act simultaneously.
+
 import { useState } from 'react'
 import type { HouseholdMember, Task } from '@prisma/client'
 import {
@@ -107,6 +133,20 @@ export function TaskList({ initialTasks, members, currentMemberId }: Props) {
     }
   }
 
+  // TODO [UX]: Task deletion is instant with no confirmation dialog and no undo.
+  // Users WILL accidentally delete tasks. This is especially harmful for tasks with
+  // detailed descriptions or recurring rules. Two fixes needed:
+  //
+  // 1. Add a confirmation dialog for task deletion ("Are you sure? This cannot be undone.")
+  //    OR use optimistic deletion with a brief undo toast ("Task deleted · Undo" for 5 seconds)
+  //    The undo toast is a better UX than a blocking confirmation — see Gmail's email delete pattern.
+  //
+  // 2. Consider "soft delete" instead of hard delete — add `deletedAt` field to Task,
+  //    filter it out of queries, and allow recovery from a "Recently deleted" section in Settings.
+  //    This prevents permanent data loss from accidental clicks.
+  //
+  // Also: the silent `catch {}` means if the API call fails, the task disappears from the UI
+  // but still exists in the DB — the state is now inconsistent. Always revert on failure.
   async function deleteTask(id: string) {
     setTasks(prev => prev.filter(t => t.id !== id))
     try {
@@ -404,6 +444,13 @@ export function TaskList({ initialTasks, members, currentMemberId }: Props) {
         })}
       </div>
 
+      {/* TODO [UX]: When no tasks match the active filter, show a more helpful empty state.
+        Instead of just "No tasks match your filters", show:
+        - The active filter name (e.g., "No URGENT tasks — you're all clear!")
+        - A suggested action ("Try changing the filter" with a clear-filters button)
+        - If ALL tasks are done/cancelled with no filter, show a celebration: "Everything done! 🎉"
+        The current generic message wastes a screen-sized opportunity to reinforce the value
+        of using Nest as a task manager. */}
       {filtered.length === 0 && (
         <div className="text-center py-16 text-gray-400">
           <CheckSquare size={40} className="mx-auto mb-3 opacity-20" />

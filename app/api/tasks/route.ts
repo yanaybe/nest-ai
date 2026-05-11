@@ -1,3 +1,26 @@
+// TODO [SECURITY]: All API routes share the same pattern: auth → find member → proceed.
+// This pattern is correct but has a subtle risk: if `db.householdMember.findFirst` fails
+// (DB timeout, connection error), the route returns a 403 "No household" instead of a 500
+// "Internal server error". This could mislead debugging — log the DB error before returning.
+//
+// TODO [SCALABILITY]: The GET handler returns ALL tasks for the household with no pagination.
+// A household with 500+ tasks (after a year of use) will return a massive JSON payload.
+// Add pagination: ?page=1&limit=50, or cursor-based pagination via ?cursor=<taskId>.
+// Also add ?status=TODO&assigneeId=X query params to enable server-side filtering.
+//
+// TODO [PERFORMANCE]: Every POST/PATCH/DELETE calls revalidatePath('/tasks') which invalidates
+// the Next.js cache for the tasks page. This is correct for server-rendered pages, but the
+// task list is actually client-rendered (it uses useState). The revalidatePath calls are
+// effectively no-ops in the current architecture. Either:
+// a) Remove revalidatePath (it's wasted overhead)
+// b) OR switch the tasks page to be server-rendered with streaming + Suspense, at which point
+//    revalidatePath becomes meaningful for keeping the page fresh for other users.
+//
+// TODO [SECURITY]: The assigneeId validation only checks if it's a valid UUID format,
+// but doesn't verify that the assignee is a member of the same household. A malicious user
+// could assign tasks to members of other households by guessing UUIDs.
+// Add: verify assigneeId belongs to member.householdId before creating the task.
+
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { db } from '@/lib/db'

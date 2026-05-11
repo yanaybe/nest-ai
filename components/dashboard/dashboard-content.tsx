@@ -1,5 +1,47 @@
 'use client'
 
+// TODO [PERFORMANCE]:
+// This entire component is a client component ('use client') that receives all its data
+// as props from a server component. This means:
+// 1. The full data payload (tasks, grocery, events, expenses, members) is serialized and
+//    sent over the network on every page load, even if the user is on a slow mobile connection
+// 2. There's no incremental data loading — everything or nothing
+//
+// Suggested improvements:
+// - Keep the greeting/header as a client component for personalization
+// - Convert each card (Tasks, Grocery, Calendar, Expenses) into a Server Component with its
+//   own data fetch, so each section can stream independently (React Suspense + streaming)
+// - Add React.memo() to prevent re-renders when sibling state changes (though currently the
+//   whole component is static after initial render, so this matters more if interactivity is added)
+// - Consider adding SWR or React Query on the client to periodically refresh dashboard data
+//   without a full page reload (stale-while-revalidate pattern)
+//
+// Expected impact: On slow connections, streaming each card independently means users see
+// content progressively rather than waiting for all 4 DB queries to complete.
+
+// TODO [UX]:
+// When a user's dashboard is completely empty (no tasks, no grocery items, no events),
+// the dashboard shows 4 "EmptyState" cards which is demotivating. New users churn when
+// they see an empty product — they don't understand the value until they've used it.
+//
+// Suggested fix:
+// - Detect first-time users (member.joinedAt within last 24 hours)
+// - Show a full-screen "Getting started" experience instead of the normal dashboard
+// - Include 3 guided actions: "Add your first task", "Add something to buy", "Ask Nest something"
+// - Auto-generate starter data via AI during onboarding (see onboarding/page.tsx TODO)
+// - Show a "Welcome to Nest!" celebration animation on first load
+
+// TODO [SCALABILITY]:
+// The dashboard page.tsx fetches up to 5 tasks, 6 grocery items, 5 events, and 5 expenses
+// in parallel. This is fine at small scale. At large scale (households with 100+ tasks,
+// ongoing shopping lists, etc.), these queries will get slow.
+//
+// Suggested improvements:
+// - Add database indexes on frequently queried fields: Task(householdId, status, dueDate),
+//   GroceryItem(householdId, checked), CalendarEvent(householdId, startAt)
+// - Add Redis caching for dashboard data with a 60-second TTL (invalidated on mutations)
+// - Consider materialized views for expensive aggregations like totalSpentThisMonth
+
 import Link from 'next/link'
 import type { CalendarEvent, Expense, GroceryItem, Household, HouseholdMember, Task } from '@prisma/client'
 import {
@@ -29,6 +71,23 @@ function formatEventDate(date: Date) {
   return format(date, 'MMM d')
 }
 
+// TODO [AI]:
+// These suggestions are hardcoded and will always be the same regardless of the household's
+// actual situation. A user who already bought eggs yesterday doesn't need "add milk, bread, eggs".
+// A user with no upcoming events doesn't care about the calendar question.
+//
+// Suggested improvement:
+// - Make suggestions dynamic based on actual household state:
+//   - If there are overdue tasks → "What tasks are overdue?"
+//   - If grocery list is empty → "What should I add to the grocery list?"
+//   - If it's Sunday → "Can you plan meals for this week?"
+//   - If there's a bill due soon → "When is [bill name] due?"
+// - Generate suggestions server-side based on current data, pass as props
+// - Alternatively: fetch personalized suggestions from a lightweight AI call on page load
+//   (cached per household, refreshed daily)
+//
+// Expected impact: Contextually relevant suggestions dramatically increase click-through rate
+// on the AI CTA and drive real engagement rather than generic exploration.
 const URGENCY_SUGGESTIONS = [
   'Add milk, bread, and eggs',
   "What's on the calendar this week?",
@@ -100,6 +159,15 @@ export function DashboardContent({
         </div>
       )}
 
+      {/* TODO [UX]: Stats currently show raw counts but no trend data. A user seeing
+        "5 open tasks" doesn't know if that's better or worse than last week. Consider:
+        - Show week-over-week delta as a small arrow (↑2 from last week)
+        - Color-code by health: green (improving), amber (steady), red (worsening)
+        - Make the "Spent this month" card show % of budget used if budgets are set
+        - Add sparkline mini-charts for expenses and task completion rate
+        These changes transform the dashboard from a count display into an actual
+        household health indicator. */}
+
       {/* ─── Stats row ───────────────────────────────────────────── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
         {[
@@ -159,6 +227,17 @@ export function DashboardContent({
 
       {/* ─── Main grid ───────────────────────────────────────────── */}
       <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
+
+        {/* TODO [UX]: Dashboard task cards are read-only. The user has to click "All" → navigate
+          to /tasks to complete a task. This is too many steps for the most common action.
+          Add inline task completion: clicking the checkbox circle should immediately mark the task done
+          with an optimistic update (useOptimistic pattern — already used in grocery-list.tsx).
+          The dashboard should be the daily command center, not a read-only summary. */}
+
+        {/* TODO [UX]: Clicking a task in the dashboard doesn't do anything — no navigation to
+          the task detail or /tasks page. The entire row should be clickable and navigate to /tasks
+          with the task highlighted or to a task detail modal. Dead clicks on interactive-looking
+          UI elements erode trust and feel broken. */}
 
         {/* Tasks */}
         <div className="bg-white rounded-2xl border border-gray-100 p-5">
@@ -392,6 +471,14 @@ export function DashboardContent({
             </button>
           </Link>
         </div>
+
+        {/* TODO [UX]: The household members widget shows name and role but no activity status.
+          Consider showing:
+          - "Last active X ago" (requires tracking lastActiveAt on HouseholdMember)
+          - Which tasks are assigned to each member
+          - A small avatar stack on shared events
+          This widget could become a mini "household pulse" — are people engaged with Nest or not?
+          That data also informs AI prompts ("David hasn't logged in for 3 days, tasks piling up"). */}
 
         {/* Quick members overview */}
         {household.members.length > 1 && (

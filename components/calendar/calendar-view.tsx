@@ -1,5 +1,31 @@
 'use client'
 
+// TODO [FEATURE]:
+// The calendar is a basic month view with add/delete. It's missing the features that make
+// a family calendar actually useful:
+//
+// 1. NO Google Calendar / Apple Calendar sync (iCal import/export):
+//    Families already have their data in Google Calendar / iOS Calendar. Without sync,
+//    they have to manually re-enter everything. The CalendarEvent model has `externalId`
+//    and `externalSource` fields for exactly this purpose — implement the OAuth flow.
+//    This is the #1 requested feature for any family calendar app.
+//
+// 2. NO event editing — you can create and delete events but not edit them.
+//    Clicking an event on the calendar should open an edit modal (same form pre-filled).
+//
+// 3. NO week view — the month view shows event counts but not event details for any given day.
+//    Families with busy schedules need a week view to see their actual day structure.
+//
+// 4. NO conflict detection — if two events overlap, the AI or UI should warn the user.
+//    "You already have 'Kids soccer practice' at 3pm on Saturday" before adding another event.
+//
+// 5. NO attendee management — EventAttendee model exists but there's no way to add/remove
+//    attendees from the calendar UI. Only the initial event creation supports attendees.
+//
+// TODO [UX]: The calendar doesn't communicate which household members have events on a given day.
+// Add color-coded dots per member under each day that has their events, so at a glance you
+// can see "David has 2 events, Sarah has 1 event on Thursday".
+
 import { useState } from 'react'
 import type { CalendarEvent } from '@prisma/client'
 import {

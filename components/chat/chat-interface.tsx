@@ -1,5 +1,31 @@
 'use client'
 
+// TODO [AI]:
+// The chat interface is the core product differentiator. Currently it's a solid foundation,
+// but it lacks the features that make AI assistants feel intelligent and trustworthy.
+//
+// Missing capabilities that users will expect within the first week:
+// 1. Voice input — many household tasks happen in the kitchen with dirty hands. Web Speech API
+//    is available in all modern browsers. Add a microphone button that transcribes and submits.
+// 2. Image upload — "What should I cook with these ingredients?" with a fridge photo.
+//    GPT-4o supports vision. This is a killer feature for a household assistant.
+// 3. Message editing — users will want to fix typos in sent messages and regenerate
+// 4. Conversation search — when you have 50 conversations, you need to search them
+// 5. Conversation naming — auto-generated titles from the first message are truncated to 60 chars
+//    but never updated as the conversation evolves
+//
+// Expected impact: Voice input alone could make this product usable in scenarios where typing
+// is not practical (cooking, driving, childcare), dramatically expanding daily use frequency.
+
+// TODO [PERFORMANCE]:
+// The entire message list re-renders on every new character the user types in the input box,
+// because `input` state lives at the same level as the message list. This causes unnecessary
+// DOM work, especially with long conversations.
+//
+// Fix: Extract the input area into a separate component (ChatInput) and use React.memo on
+// the message list (ChatMessages). The message list should only re-render when `messages`
+// or `isLoading` changes, not when the user types.
+
 import { useChat } from 'ai/react'
 import { useEffect, useRef, useState, useCallback } from 'react'
 import type { AIConversation, HouseholdMember } from '@prisma/client'
@@ -146,6 +172,11 @@ export function ChatInterface({ member, initialQuery, recentConversations }: Pro
     <div className="flex h-full">
       {/* ─── Sidebar: conversations ─────────────────────────────── */}
       <div className="hidden lg:flex flex-col w-60 border-r border-gray-100 bg-white">
+        {/* TODO [UX]: "New chat" button calls window.location.reload() which is a full page
+          reload — all React state is destroyed, network requests are re-fired, and the user
+          sees a flash. This should use Next.js router.push('/chat') with the conversation
+          state reset via a query param or URL change, not a full page reload.
+          Also: if the user already has an active conversation, warn them before losing it. */}
         <div className="px-4 pt-5 pb-3 border-b border-gray-50">
           <div className="flex items-center justify-between">
             <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Recent chats</h3>
@@ -163,6 +194,20 @@ export function ChatInterface({ member, initialQuery, recentConversations }: Pro
             <p className="text-xs text-gray-400 text-center py-6 px-3">No previous conversations</p>
           ) : (
             recentConversations.map((conv) => (
+              {/* TODO [HIGH PRIORITY]:
+                Clicking a previous conversation does nothing — the onClick is a stub.
+                This is a broken feature. Users see their conversation history in the sidebar
+                but can't load it. When they click, nothing happens.
+
+                Implementation needed:
+                1. Load the conversation's messages from the DB: GET /api/ai/conversations/:id/messages
+                2. Populate the useChat `messages` state with the loaded history
+                3. Set `conversationId` to the selected conversation's ID so new messages append correctly
+                4. Show a loading state while the history is fetched
+                5. Handle the edge case where the conversation has tool invocations (message format differs)
+
+                This is a core retention feature — users can't reference past conversations
+                without it. Fix this before any user testing. */}
               <button
                 key={conv.id}
                 onClick={() => { /* TODO: load conversation history */ }}
@@ -273,6 +318,30 @@ export function ChatInterface({ member, initialQuery, recentConversations }: Pro
                         )}
                       </div>
 
+                      {/* TODO [AI]: The ThumbsUp button does nothing — there is no feedback
+                        collection system. This is a critical missing feature for AI quality
+                        improvement. User feedback is how you train better responses over time.
+
+                        Implementation needed:
+                        1. POST /api/ai/feedback with { messageId, type: 'positive' | 'negative', comment? }
+                        2. Store feedback in a new Feedback table in Prisma schema
+                        3. Add ThumbsDown button alongside ThumbsUp
+                        4. On negative feedback: show a follow-up "What went wrong?" mini-form
+                           (Options: "Wrong information", "Not helpful", "Took wrong action", "Other")
+                        5. Use feedback data to:
+                           a. Fine-tune prompts for common failure modes
+                           b. Identify which tool calls cause frustration
+                           c. Build a quality dashboard for internal monitoring
+
+                        Also: the message actions (copy, regenerate, thumbs up) only appear on the
+                        LAST assistant message. They should appear on hover for ALL assistant messages
+                        so users can copy or rate any response, not just the latest. */}
+
+                      {/* TODO [UX]: The message action buttons (copy, regenerate, thumbs) are
+                        invisible until hover — `opacity-0 group-hover:opacity-100`. On mobile,
+                        there is no hover state. These actions are completely inaccessible on touch
+                        devices. Fix: show a "..." tap target on mobile that reveals the action menu. */}
+
                       {/* Assistant message actions */}
                       {!isUser && isLast && (
                         <div className="flex items-center gap-1 mt-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -352,6 +421,16 @@ export function ChatInterface({ member, initialQuery, recentConversations }: Pro
                 )}
               </div>
             </div>
+            {/* TODO [MOBILE]: The input textarea on iOS Safari doesn't trigger the auto-scroll
+              to bottom reliably when the virtual keyboard appears and pushes the viewport up.
+              The chat content disappears behind the keyboard. Fix: listen to the
+              visualViewport.resize event and adjust the chat container height dynamically.
+              This is one of the most reported bugs in chat UI on mobile. */}
+
+            {/* TODO [UX]: Character/token limit is not communicated to the user. If someone
+              types a very long message, the AI response may be cut off or the request may fail
+              due to context window limits. Add a subtle character counter that shows when
+              approaching limits, and gracefully degrade with a warning message. */}
             <p className="text-center text-[11px] text-gray-400 mt-2">
               Nest can make mistakes. Double-check important details.
             </p>
