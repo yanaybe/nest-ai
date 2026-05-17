@@ -1,5 +1,38 @@
 'use client'
 
+// TODO [AI]:
+// The meal planner's AI generation works but has a brittle implementation:
+// 1. It hits the full /api/ai/chat endpoint (designed for conversations) just to generate
+//    a meal plan. This uses the expensive streaming infrastructure unnecessarily.
+//    Better: create a dedicated /api/ai/meals/generate endpoint that uses a single
+//    non-streaming OpenAI call with a structured output schema (JSON mode).
+//
+// 2. The JSON parsing uses a regex to extract JSON from the AI response (`/\[[\s\S]*\]/`).
+//    If the AI wraps the JSON in backticks (```json ... ```) or adds any text before/after,
+//    the regex fails and falls back to template meals silently. This is a silent failure that
+//    users won't understand. Use OpenAI's structured output (response_format: { type: 'json_object' })
+//    to guarantee valid JSON without regex parsing.
+//
+// 3. The meal plan has no dietary preference awareness — it generates suggestions without
+//    knowing about allergies, vegetarian/vegan preferences, or cultural restrictions.
+//    These should be stored as household memories and passed in the AI generation prompt.
+//    A meal plan that suggests "Beef stir-fry" to a vegetarian family is a trust breaker.
+
+// TODO [FEATURE]:
+// The meal planner is currently disconnected from the grocery list. The "Add to grocery"
+// button in the UI exists but likely only adds a few items. The real value is:
+// "Generate this week's meal plan" → AI identifies all required ingredients → adds them
+// all to the grocery list categorized by store section → user goes shopping once with a
+// complete list.
+//
+// This end-to-end meal-to-grocery flow is the #1 feature that would make Nest genuinely
+// valuable for families who meal plan. Without it, meal planning is just a pretty table.
+
+// TODO [UX]:
+// The meal planner has no way to view previous weeks' plans. Users might want to repeat
+// last week's meal plan or see patterns in what they cook. Add week navigation (like the
+// expense tracker's month navigation) to browse meal history.
+
 import { useState } from 'react'
 import type { MealPlan } from '@prisma/client'
 import { ChefHat, Plus, Sparkles, Loader2, ShoppingCart, X, Edit2, Check } from 'lucide-react'
@@ -101,36 +134,11 @@ export function MealPlanner({ currentPlan, householdId }: Props) {
   async function generateWithAI() {
     setGenerating(true)
     try {
-      const res = await fetch('/api/ai/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          messages: [{
-            role: 'user',
-            content: 'Generate a balanced weekly meal plan for my family. For each of the 7 days (Monday-Sunday) give me breakfast, lunch, and dinner. Return ONLY a JSON object with this exact structure: { "Monday": { "breakfast": "...", "lunch": "...", "dinner": "..." }, "Tuesday": ... }. No additional text, just the JSON.'
-          }]
-        }),
-      })
+      const res = await fetch('/api/ai/meals', { method: 'POST' })
       if (res.ok) {
-        const text = await res.text()
-        // Extract JSON from streaming response
-        const jsonMatch = text.match(/\{[\s\S]*\}/)
-        if (jsonMatch) {
-          try {
-            const generated = JSON.parse(jsonMatch[0])
-            setMeals(generated)
-          } catch {
-            // Fallback: set some template meals
-            const template: MealsJson = {}
-            DAYS.forEach((day, i) => {
-              template[day] = {
-                breakfast: ['Scrambled eggs & toast', 'Oatmeal with berries', 'Greek yogurt & granola', 'Pancakes', 'Avocado toast', 'Smoothie bowl', 'French toast'][i],
-                lunch: ['Turkey sandwich', 'Caesar salad', 'Soup & bread', 'Tuna wrap', 'Leftovers', 'BLT', 'Quesadilla'][i],
-                dinner: ['Pasta bolognese', 'Grilled chicken', 'Stir-fry', 'Tacos', 'Pizza', 'Salmon', 'Roast chicken'][i],
-              }
-            })
-            setMeals(template)
-          }
+        const { meals: generated } = await res.json()
+        if (generated && typeof generated === 'object') {
+          setMeals(generated as MealsJson)
         }
       }
     } finally {

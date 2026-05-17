@@ -1,10 +1,36 @@
 'use client'
 
-import { useState } from 'react'
+// TODO [UX]:
+// The task list is missing several features that users will immediately expect from a task manager:
+//
+// 1. NO search/filter by text — with 50+ tasks, you can't find anything
+//    Add: text search input that filters by title + description client-side (no extra DB calls)
+//
+// 2. NO drag-and-drop reordering — users want to manually prioritize their list
+//    Add: @dnd-kit/sortable for drag-and-drop with persistence via a `sortOrder` field
+//
+// 3. NO inline editing — to change a task title or due date, you have to delete and recreate
+//    Add: click-to-edit on any task field (title, due date, assignee) with optimistic updates
+//
+// 4. NO bulk actions — can't mark multiple tasks done, delete multiple, or reassign multiple
+//    Add: checkbox select mode with "Mark done", "Delete", "Reassign" bulk actions
+//
+// 5. NO recurring task support — the schema has `isRecurring` and `recurringRule` but the UI
+//    has no way to create recurring tasks. This is a critical missing feature for chores.
+//
+// TODO [REFACTOR]:
+// The `tasks` state is initialized from `initialTasks` (server-fetched) but mutations update
+// it locally. If another household member adds a task between page loads, the current user
+// won't see it unless they refresh. Consider:
+// - Polling with useEffect + setInterval every 30s
+// - Or better: Supabase realtime subscriptions on the tasks table for live updates
+// This is especially important in a household app where multiple people act simultaneously.
+
+import { useState, useEffect } from 'react'
 import type { HouseholdMember, Task } from '@prisma/client'
 import {
   CheckSquare, Plus, X, Loader2, Trash2, Calendar, User, ChevronDown, ChevronRight,
-  Circle, Clock, CheckCircle2, XCircle,
+  Circle, Clock, CheckCircle2, XCircle, RotateCcw,
 } from 'lucide-react'
 import { format, isToday, isTomorrow, isPast } from 'date-fns'
 import { Button } from '@/components/ui/button'
@@ -53,6 +79,13 @@ function formatDueDate(date: Date) {
   return format(date, 'MMM d')
 }
 
+interface DeletePending {
+  id: string
+  title: string
+  task: TaskWithRelations
+  timer: ReturnType<typeof setTimeout>
+}
+
 export function TaskList({ initialTasks, members, currentMemberId }: Props) {
   const [tasks, setTasks] = useState<TaskWithRelations[]>(initialTasks)
   const [statusFilter, setStatusFilter] = useState<string>('ALL')
@@ -62,6 +95,11 @@ export function TaskList({ initialTasks, members, currentMemberId }: Props) {
   const [formError, setFormError] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set(['DONE', 'CANCELLED']))
+  const [deletePending, setDeletePending] = useState<DeletePending | null>(null)
+
+  useEffect(() => {
+    return () => { if (deletePending) clearTimeout(deletePending.timer) }
+  }, [deletePending])
 
   const filtered = tasks.filter(t => {
     if (statusFilter !== 'ALL' && t.status !== statusFilter) return false
@@ -108,12 +146,34 @@ export function TaskList({ initialTasks, members, currentMemberId }: Props) {
   }
 
   async function deleteTask(id: string) {
-    setTasks(prev => prev.filter(t => t.id !== id))
-    try {
-      await fetch(`/api/tasks/${id}`, { method: 'DELETE' })
-    } catch {
-      // silent
+    const task = tasks.find(t => t.id === id)
+    if (!task) return
+
+    if (deletePending) {
+      clearTimeout(deletePending.timer)
+      fetch(`/api/tasks/${deletePending.id}`, { method: 'DELETE' }).catch(() => {})
     }
+
+    setTasks(prev => prev.filter(t => t.id !== id))
+
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/tasks/${id}`, { method: 'DELETE' })
+        if (!res.ok) setTasks(prev => [task, ...prev])
+      } catch {
+        setTasks(prev => [task, ...prev])
+      }
+      setDeletePending(null)
+    }, 4000)
+
+    setDeletePending({ id, title: task.title, task, timer })
+  }
+
+  function undoDelete() {
+    if (!deletePending) return
+    clearTimeout(deletePending.timer)
+    setTasks(prev => [deletePending.task, ...prev])
+    setDeletePending(null)
   }
 
   async function addTask() {
@@ -154,7 +214,21 @@ export function TaskList({ initialTasks, members, currentMemberId }: Props) {
   const STATUS_ORDER = ['TODO', 'IN_PROGRESS', 'DONE', 'CANCELLED']
 
   return (
-    <div className="p-6 max-w-4xl mx-auto space-y-6">
+    <div className="p-6 max-w-4xl mx-auto space-y-6 relative">
+      {/* Undo toast */}
+      {deletePending && (
+        <div className="fixed bottom-20 md:bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 bg-gray-900 text-white px-4 py-3 rounded-2xl shadow-xl animate-fade-in-up">
+          <span className="text-sm">Deleted <span className="font-medium">{deletePending.title}</span></span>
+          <span className="text-gray-500">·</span>
+          <button
+            onClick={undoDelete}
+            className="text-sm font-semibold text-indigo-400 hover:text-indigo-300 flex items-center gap-1.5 transition-colors"
+          >
+            <RotateCcw size={13} /> Undo
+          </button>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
@@ -404,6 +478,13 @@ export function TaskList({ initialTasks, members, currentMemberId }: Props) {
         })}
       </div>
 
+      {/* TODO [UX]: When no tasks match the active filter, show a more helpful empty state.
+        Instead of just "No tasks match your filters", show:
+        - The active filter name (e.g., "No URGENT tasks — you're all clear!")
+        - A suggested action ("Try changing the filter" with a clear-filters button)
+        - If ALL tasks are done/cancelled with no filter, show a celebration: "Everything done! 🎉"
+        The current generic message wastes a screen-sized opportunity to reinforce the value
+        of using Nest as a task manager. */}
       {filtered.length === 0 && (
         <div className="text-center py-16 text-gray-400">
           <CheckSquare size={40} className="mx-auto mb-3 opacity-20" />

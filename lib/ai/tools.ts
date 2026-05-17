@@ -3,6 +3,44 @@ import { z } from 'zod'
 import { db } from '@/lib/db'
 import { ExpenseCategory, Priority, TaskStatus } from '@prisma/client'
 
+// TODO [AI]:
+// The current tool set covers the basics but is missing high-value tools that would make Nest
+// feel genuinely intelligent vs. just a voice interface for CRUD operations:
+//
+// Missing tools (high impact):
+// 1. searchHouseholdContext — "Does anyone have a nut allergy?" requires searching memories
+//    AND existing tasks/notes. A dedicated search tool prevents the AI from hallucinating answers.
+// 2. getBills — AI can't answer "when is the electricity bill due?" without this tool
+// 3. getSpendinvgInsights — complex spending analysis: "are we spending more than last month?"
+//    should return trend data, not just current month totals
+// 4. updateTask — AI can't mark a task done. User says "mark 'buy groceries' as done" and
+//    the AI can only create new tasks, not update existing ones
+// 5. deleteGroceryItem — AI can't remove items from the list ("we already bought milk")
+// 6. getMealPlan — AI can't tell you what's planned for dinner tonight
+// 7. getHouseholdMembers — AI currently uses hardcoded member list from system prompt, should
+//    be dynamic to handle mid-conversation member changes
+//
+// TODO [SECURITY]:
+// All tools execute database mutations using the householdId injected at call time.
+// This is correct and prevents cross-household data access. However, there's no audit log
+// of what actions the AI took. If the AI accidentally deletes the wrong items or creates
+// duplicate tasks, there's no way to know it happened or to reverse it.
+//
+// Suggested fix:
+// - Add an AIAction log table: { id, householdId, memberId, tool, input, output, createdAt }
+// - Log every tool execution (success and failure) to this table
+// - Add a "Nest actions" feed in Settings so users can see what the AI did and undo it
+// - This also gives you valuable data about which tools are most used (informs product roadmap)
+
+// TODO [PERFORMANCE]:
+// createTools() is called on every API request and recreates the entire tool object from scratch.
+// While the tools themselves are lightweight (just schema + function definitions), the DB calls
+// inside execute() functions are not cached. If a user asks multiple questions in one session
+// that all query the same data (e.g., multiple grocery questions), each call hits the DB fresh.
+//
+// Suggested: Add a per-request context cache using a WeakMap or simple closure so that within
+// a single streaming session, repeated reads of the same data don't hit the DB multiple times.
+
 // All tools receive householdId as context — injected at call time, not from AI
 export function createTools(householdId: string, memberId: string) {
   return {
@@ -54,9 +92,15 @@ export function createTools(householdId: string, memberId: string) {
         const items = await db.groceryItem.findMany({
           where: { householdId, checked: false },
         })
-        const toUpdate = items.filter((i) =>
-          itemNames.some((n) => i.name.toLowerCase().includes(n.toLowerCase()))
-        )
+        const toUpdate = items.filter((i) => {
+          const name = i.name.toLowerCase()
+          return itemNames.some((n) => {
+            const q = n.toLowerCase()
+            if (name === q) return true
+            if (q.length > 4 && name.includes(q)) return true
+            return false
+          })
+        })
         await db.groceryItem.updateMany({
           where: { id: { in: toUpdate.map((i) => i.id) } },
           data: { checked: true, checkedBy: memberId, checkedAt: new Date(), lastBoughtAt: new Date() },
@@ -104,6 +148,12 @@ export function createTools(householdId: string, memberId: string) {
       },
     }),
 
+    // TODO [AI]: Missing critical task management tools:
+    // - updateTask: change status, priority, dueDate, or assignee on an existing task
+    //   (Users say "mark the dentist task as done" and the AI can't do it)
+    // - completeTask: shorthand for marking a specific task DONE by name
+    // - deleteTask: remove a task the user no longer needs
+    // Without these, the AI can CREATE tasks but never close the loop. This is a fundamental gap.
     getTasks: tool({
       description: 'Get tasks for the household',
       parameters: z.object({
@@ -301,6 +351,89 @@ export function createTools(householdId: string, memberId: string) {
           data: { householdId, memberId: forMemberId, title, body, remindAt: new Date(remindAt) },
         })
         return { reminder: { id: reminder.id, title: reminder.title, remindAt: reminder.remindAt } }
+      },
+    }),
+
+    // ── TASK UPDATES ─────────────────────────────────────────────────────────
+    updateTask: tool({
+      description: 'Update an existing task — change its status, priority, due date, or assignee',
+      parameters: z.object({
+        taskTitle: z.string().describe('Title or partial title of the task to update'),
+        updates: z.object({
+          status: z.enum(['TODO', 'IN_PROGRESS', 'DONE', 'CANCELLED']).optional(),
+          priority: z.enum(['LOW', 'MEDIUM', 'HIGH', 'URGENT']).optional(),
+          dueDate: z.string().optional().describe('ISO date string or null to clear'),
+          assigneeName: z.string().optional(),
+        }),
+      }),
+      execute: async ({ taskTitle, updates }) => {
+        const tasks = await db.task.findMany({
+          where: { householdId, title: { contains: taskTitle, mode: 'insensitive' }, status: { not: 'CANCELLED' } },
+          take: 5,
+        })
+        if (tasks.length === 0) return { error: `No task found matching "${taskTitle}"` }
+        const task = tasks[0]
+
+        let assigneeId: string | undefined
+        if (updates.assigneeName) {
+          const m = await db.householdMember.findFirst({
+            where: { householdId, displayName: { contains: updates.assigneeName, mode: 'insensitive' } },
+          })
+          assigneeId = m?.id
+        }
+
+        const updated = await db.task.update({
+          where: { id: task.id },
+          data: {
+            ...(updates.status && { status: updates.status as TaskStatus }),
+            ...(updates.priority && { priority: updates.priority as Priority }),
+            ...(updates.dueDate !== undefined && { dueDate: updates.dueDate ? new Date(updates.dueDate) : null }),
+            ...(assigneeId && { assigneeId }),
+            ...(updates.status === 'DONE' && { completedAt: new Date() }),
+          },
+          include: { assignee: true },
+        })
+        return { updated: { id: updated.id, title: updated.title, status: updated.status, assignee: updated.assignee?.displayName } }
+      },
+    }),
+
+    // ── GROCERY DELETION ──────────────────────────────────────────────────────
+    deleteGroceryItem: tool({
+      description: 'Remove one or more items from the grocery list',
+      parameters: z.object({
+        itemNames: z.array(z.string()).describe('Names of items to remove'),
+      }),
+      execute: async ({ itemNames }) => {
+        const items = await db.groceryItem.findMany({ where: { householdId } })
+        const toDelete = items.filter(i =>
+          itemNames.some(n => i.name.toLowerCase() === n.toLowerCase() ||
+            (i.name.toLowerCase().includes(n.toLowerCase()) && n.length > 3))
+        )
+        if (toDelete.length === 0) return { error: 'No matching items found' }
+        await db.groceryItem.deleteMany({ where: { id: { in: toDelete.map(i => i.id) } } })
+        return { deleted: toDelete.map(i => i.name) }
+      },
+    }),
+
+    // ── BILLS ─────────────────────────────────────────────────────────────────
+    getBillsSummary: tool({
+      description: 'Get a summary of household bills — upcoming, overdue, and monthly total',
+      parameters: z.object({}),
+      execute: async () => {
+        const bills = await db.bill.findMany({
+          where: { householdId },
+          orderBy: { dueDay: 'asc' },
+        })
+        const today = new Date().getDate()
+        const upcoming = bills.filter(b => b.dueDay >= today && b.dueDay <= today + 7)
+        const overdue = bills.filter(b => b.dueDay < today && !b.isAutoPay)
+        const monthlyTotal = bills.reduce((sum, b) => sum + b.amount, 0)
+        return {
+          bills: bills.map(b => ({ name: b.name, amount: b.amount, dueDay: b.dueDay, isAutoPay: b.isAutoPay })),
+          upcoming: upcoming.length,
+          overdue: overdue.length,
+          monthlyTotal,
+        }
       },
     }),
   }

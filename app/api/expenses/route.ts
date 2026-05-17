@@ -1,3 +1,26 @@
+// TODO [UX / FEATURE]:
+// The expense tracker lacks several critical features that users expect from a financial tracking app:
+//
+// 1. NO receipt scanning — the Expense model has receiptUrl field but there's no upload UI.
+//    Adding photo receipt scanning (via OpenAI Vision) would auto-populate title, amount,
+//    and category from a photo. This is a premium differentiator.
+//
+// 2. NO expense splitting — when David pays for dinner for the family, there's no way to
+//    split the expense and track who owes whom. The model has paidById but no split logic.
+//    This is the core feature of apps like Splitwise, which Nest should compete with.
+//
+// 3. NO budget enforcement — the Budget model exists but there are no alerts when a category
+//    exceeds budget. Add: POST expense → check if category budget is exceeded → create
+//    Notification "You've exceeded your Dining budget this month".
+//
+// 4. NO recurring expense support — isRecurring and recurringRule exist in schema but the UI
+//    has no way to create recurring expenses and no cron job to auto-create them.
+//
+// TODO [SCALABILITY]: The expense GET handler returns ALL expenses for the month with no
+// pagination or limit. For high-frequency expense tracking (50+ expenses/month), this is
+// fine. But the month's expense data includes JOIN with paidBy for every record — consider
+// adding ?includeDetails=false for summary-only views.
+
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { db } from '@/lib/db'

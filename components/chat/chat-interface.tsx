@@ -1,18 +1,45 @@
 'use client'
 
+// TODO [AI]:
+// The chat interface is the core product differentiator. Currently it's a solid foundation,
+// but it lacks the features that make AI assistants feel intelligent and trustworthy.
+//
+// Missing capabilities that users will expect within the first week:
+// 1. Voice input — many household tasks happen in the kitchen with dirty hands. Web Speech API
+//    is available in all modern browsers. Add a microphone button that transcribes and submits.
+// 2. Image upload — "What should I cook with these ingredients?" with a fridge photo.
+//    GPT-4o supports vision. This is a killer feature for a household assistant.
+// 3. Message editing — users will want to fix typos in sent messages and regenerate
+// 4. Conversation search — when you have 50 conversations, you need to search them
+// 5. Conversation naming — auto-generated titles from the first message are truncated to 60 chars
+//    but never updated as the conversation evolves
+//
+// Expected impact: Voice input alone could make this product usable in scenarios where typing
+// is not practical (cooking, driving, childcare), dramatically expanding daily use frequency.
+
+// TODO [PERFORMANCE]:
+// The entire message list re-renders on every new character the user types in the input box,
+// because `input` state lives at the same level as the message list. This causes unnecessary
+// DOM work, especially with long conversations.
+//
+// Fix: Extract the input area into a separate component (ChatInput) and use React.memo on
+// the message list (ChatMessages). The message list should only re-render when `messages`
+// or `isLoading` changes, not when the user types.
+
 import { useChat } from 'ai/react'
 import { useEffect, useRef, useState, useCallback } from 'react'
 import type { AIConversation, HouseholdMember } from '@prisma/client'
 import {
   Send, Loader2, Sparkles, ShoppingCart, CheckSquare,
   Calendar, DollarSign, Plus, Bell, ChefHat, Receipt,
-  RefreshCw, ThumbsUp, Copy, Check
+  RefreshCw, ThumbsUp, ThumbsDown, Copy, Check
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { format } from 'date-fns'
 import { cn } from '@/lib/utils'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { useRouter } from 'next/navigation'
 
 interface Props {
   member: HouseholdMember
@@ -99,8 +126,11 @@ export function ChatInterface({ member, initialQuery, recentConversations }: Pro
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const [conversationId, setConversationId] = useState<string | undefined>()
+  const [loadingConv, setLoadingConv] = useState<string | null>(null)
+  const [feedback, setFeedback] = useState<Record<string, 'positive' | 'negative'>>({})
+  const router = useRouter()
 
-  const { messages, input, handleInputChange, handleSubmit, isLoading, setInput, append, reload, stop } = useChat({
+  const { messages, input, handleInputChange, handleSubmit, isLoading, setInput, append, reload, stop, setMessages } = useChat({
     api: '/api/ai/chat',
     body: { conversationId },
     onResponse: (response) => {
@@ -108,6 +138,42 @@ export function ChatInterface({ member, initialQuery, recentConversations }: Pro
       if (convId && !conversationId) setConversationId(convId)
     },
   })
+
+  async function loadConversation(convId: string) {
+    if (loadingConv === convId) return
+    setLoadingConv(convId)
+    try {
+      const res = await fetch(`/api/ai/conversations/${convId}/messages`)
+      if (!res.ok) return
+      const { messages: dbMessages } = await res.json()
+      const formatted = dbMessages
+        .filter((m: { role: string }) => m.role === 'USER' || m.role === 'ASSISTANT')
+        .map((m: { id: string; role: string; content: string }) => ({
+          id: m.id,
+          role: m.role === 'USER' ? 'user' as const : 'assistant' as const,
+          content: m.content,
+        }))
+      setMessages(formatted)
+      setConversationId(convId)
+    } catch {
+      // silent
+    } finally {
+      setLoadingConv(null)
+    }
+  }
+
+  async function submitFeedback(messageId: string, type: 'positive' | 'negative') {
+    setFeedback(prev => ({ ...prev, [messageId]: type }))
+    try {
+      await fetch('/api/ai/feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messageId, type }),
+      })
+    } catch {
+      // silent
+    }
+  }
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -150,7 +216,7 @@ export function ChatInterface({ member, initialQuery, recentConversations }: Pro
           <div className="flex items-center justify-between">
             <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Recent chats</h3>
             <button
-              onClick={() => { setConversationId(undefined); window.location.reload() }}
+              onClick={() => { setConversationId(undefined); setMessages([]); router.push('/chat') }}
               className="w-6 h-6 flex items-center justify-center rounded-lg hover:bg-gray-100 text-gray-400 transition-colors press-effect"
               title="New chat"
             >
@@ -165,18 +231,28 @@ export function ChatInterface({ member, initialQuery, recentConversations }: Pro
             recentConversations.map((conv) => (
               <button
                 key={conv.id}
-                onClick={() => { /* TODO: load conversation history */ }}
+                onClick={() => loadConversation(conv.id)}
+                disabled={loadingConv === conv.id}
                 className={cn(
                   'w-full text-left px-3 py-2.5 rounded-xl hover:bg-gray-50 transition-colors',
                   conv.id === conversationId && 'bg-indigo-50'
                 )}
               >
-                <p className={cn('text-xs font-medium truncate', conv.id === conversationId ? 'text-indigo-700' : 'text-gray-800')}>
-                  {conv.title || 'New conversation'}
-                </p>
-                <p className="text-[11px] text-gray-400 mt-0.5">
-                  {format(new Date(conv.updatedAt), 'MMM d')} · {conv._count.messages} messages
-                </p>
+                {loadingConv === conv.id ? (
+                  <div className="flex items-center gap-2">
+                    <Loader2 size={11} className="animate-spin text-indigo-400" />
+                    <p className="text-xs text-gray-400">Loading…</p>
+                  </div>
+                ) : (
+                  <>
+                    <p className={cn('text-xs font-medium truncate', conv.id === conversationId ? 'text-indigo-700' : 'text-gray-800')}>
+                      {conv.title || 'New conversation'}
+                    </p>
+                    <p className="text-[11px] text-gray-400 mt-0.5">
+                      {format(new Date(conv.updatedAt), 'MMM d')} · {conv._count.messages} messages
+                    </p>
+                  </>
+                )}
               </button>
             ))
           )}
@@ -283,8 +359,27 @@ export function ChatInterface({ member, initialQuery, recentConversations }: Pro
                           >
                             <RefreshCw size={12} />
                           </button>
-                          <button className="p-1 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors">
-                            <ThumbsUp size={12} />
+                          <button
+                            onClick={() => submitFeedback(message.id, 'positive')}
+                            className={cn(
+                              'p-1 rounded-lg hover:bg-gray-100 transition-colors',
+                              feedback[message.id] === 'positive'
+                                ? 'text-indigo-600'
+                                : 'text-gray-400 hover:text-gray-600'
+                            )}
+                          >
+                            <ThumbsUp size={12} className={feedback[message.id] === 'positive' ? 'fill-indigo-600' : ''} />
+                          </button>
+                          <button
+                            onClick={() => submitFeedback(message.id, 'negative')}
+                            className={cn(
+                              'p-1 rounded-lg hover:bg-gray-100 transition-colors',
+                              feedback[message.id] === 'negative'
+                                ? 'text-red-500'
+                                : 'text-gray-400 hover:text-gray-600'
+                            )}
+                          >
+                            <ThumbsDown size={12} className={feedback[message.id] === 'negative' ? 'fill-red-500' : ''} />
                           </button>
                         </div>
                       )}
@@ -352,6 +447,16 @@ export function ChatInterface({ member, initialQuery, recentConversations }: Pro
                 )}
               </div>
             </div>
+            {/* TODO [MOBILE]: The input textarea on iOS Safari doesn't trigger the auto-scroll
+              to bottom reliably when the virtual keyboard appears and pushes the viewport up.
+              The chat content disappears behind the keyboard. Fix: listen to the
+              visualViewport.resize event and adjust the chat container height dynamically.
+              This is one of the most reported bugs in chat UI on mobile. */}
+
+            {/* TODO [UX]: Character/token limit is not communicated to the user. If someone
+              types a very long message, the AI response may be cut off or the request may fail
+              due to context window limits. Add a subtle character counter that shows when
+              approaching limits, and gracefully degrade with a warning message. */}
             <p className="text-center text-[11px] text-gray-400 mt-2">
               Nest can make mistakes. Double-check important details.
             </p>

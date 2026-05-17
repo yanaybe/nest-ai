@@ -1,8 +1,59 @@
 'use client'
 
+// TODO [UX]:
+// The current onboarding is purely functional — it collects data but does NOT sell the user
+// on Nest's value. A new user who just signed up needs to feel excited, not like they're
+// filling out a form. First impressions set retention.
+//
+// Current problems:
+// 1. No value proposition reinforcement — the user just came from a marketing page and now sees
+//    a plain "Get started" card with no reminder of why Nest is amazing
+// 2. No onboarding "hook" moment — users don't experience any AI magic during setup
+// 3. No guidance on what a good household setup looks like (examples, templates)
+// 4. The "Timezone" / "Currency" fields appear before the user even understands the product
+//
+// Suggested improvements:
+// - Step 1: Show an animated "Welcome" screen with a brief value statement ("Nest learns your
+//   household's patterns and helps you stay organized effortlessly")
+// - Add AI-generated starter setup: after household creation, auto-populate 3 sample tasks,
+//   a grocery list, and an upcoming event so the dashboard feels alive immediately
+// - Add "Quick templates" for common household types: "Young couple", "Family with kids", "Roommates"
+//   that pre-configure categories and common tasks
+// - Move timezone/currency to Settings — most users don't care and it adds friction to the
+//   most critical signup moment
+// - Show a preview of what the dashboard will look like after setup
+//
+// Expected impact: Reducing onboarding steps and showing value earlier should improve
+// activation rate (users who take a meaningful action within 7 days) by 30-50%.
+
+// TODO [GROWTH]:
+// There is no referral or sharing mechanism at the end of onboarding. After a user creates
+// a household, they immediately want to invite their family — but there's no "Invite your
+// family" step in the flow. The invite code exists in the DB but isn't surfaced here.
+//
+// Suggested addition:
+// - Add Step 4: "Invite your family" that shows the invite code prominently with a copy button
+//   and a "Share via WhatsApp / iMessage" button (native Web Share API)
+// - Show who has joined in real-time as they accept the invite (via polling or SSE)
+// - Frame it as: "Nest is better with the whole family. Invite them now."
+// - Add viral loop: remind the household creator to invite remaining members in the first
+//   3 dashboard visit notifications
+//
+// Expected impact: Each household inviting 1+ additional member doubles your active user count
+// without any additional acquisition cost. This is the highest-leverage growth lever in the product.
+
+// TODO [MOBILE]:
+// The onboarding page uses `min-h-screen` which doesn't account for the iOS Safari address bar
+// height shifting as the user scrolls. On certain devices, the "Let's go!" button may be hidden
+// behind the browser chrome.
+//
+// Fix: Use `min-h-[100dvh]` (dynamic viewport height) instead of `min-h-screen` to ensure
+// the page fills the actual visible area on mobile browsers.
+// Also verify the form doesn't get obscured by the virtual keyboard on iOS when typing.
+
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Home, Users, ChevronRight, ArrowLeft, Check, Loader2 } from 'lucide-react'
+import { Home, Users, ChevronRight, ArrowLeft, Check, Loader2, Copy, Share2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -10,6 +61,10 @@ import { cn } from '@/lib/utils'
 
 type Flow = 'none' | 'create' | 'join'
 
+// TODO [UX]: Hardcoded timezone list misses most of the world. Use the browser's
+// Intl.supportedValuesOf('timeZone') API to populate a full, auto-detected list,
+// or default to the user's detected timezone via Intl.DateTimeFormat().resolvedOptions().timeZone
+// and only show the selector as an "override" option. Most users just want the right default.
 const TIMEZONES = ['UTC', 'America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles', 'Europe/London', 'Europe/Paris', 'Asia/Jerusalem', 'Asia/Tokyo', 'Australia/Sydney']
 const CURRENCIES = [
   { code: 'USD', label: 'USD — US Dollar' },
@@ -31,7 +86,7 @@ const AVATAR_COLORS = [
 export default function OnboardingPage() {
   const router = useRouter()
 
-  const [step, setStep] = useState<1 | 2 | 3>(1)
+  const [step, setStep] = useState<1 | 2 | 3 | 4>(1)
   const [flow, setFlow] = useState<Flow>('none')
 
   // Create form
@@ -45,6 +100,10 @@ export default function OnboardingPage() {
   // Step 3
   const [displayName, setDisplayName] = useState('')
   const [color, setColor] = useState('#6366f1')
+
+  // Step 4 (invite)
+  const [createdInviteCode, setCreatedInviteCode] = useState('')
+  const [codeCopied, setCodeCopied] = useState(false)
 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -97,6 +156,10 @@ export default function OnboardingPage() {
           setError(typeof data.error === 'string' ? data.error : 'Failed to create household')
           return
         }
+        const data = await res.json()
+        setCreatedInviteCode(data.inviteCode ?? '')
+        // Show Step 4: invite family
+        setStep(4)
       } else {
         const res = await fetch('/api/household/join', {
           method: 'POST',
@@ -112,8 +175,8 @@ export default function OnboardingPage() {
           setError(typeof data.error === 'string' ? data.error : 'Failed to join household')
           return
         }
+        router.push('/dashboard')
       }
-      router.push('/dashboard')
     } catch {
       setError('Something went wrong. Please try again.')
     } finally {
@@ -121,8 +184,37 @@ export default function OnboardingPage() {
     }
   }
 
-  const totalSteps = 3
-  const stepLabels = ['Choose', flow === 'create' ? 'Setup' : 'Join', 'Profile']
+  async function copyInviteCode() {
+    try {
+      await navigator.clipboard.writeText(createdInviteCode)
+      setCodeCopied(true)
+      setTimeout(() => setCodeCopied(false), 2000)
+    } catch {
+      // fallback
+    }
+  }
+
+  async function shareInviteCode() {
+    if (typeof navigator !== 'undefined' && navigator.share) {
+      try {
+        await navigator.share({
+          title: 'Join my household on Nest',
+          text: `Join my household on Nest — the AI family assistant. Use invite code: ${createdInviteCode}`,
+          url: window.location.origin + '/onboarding',
+        })
+      } catch {
+        // User dismissed share — fallback to copy
+        copyInviteCode()
+      }
+    } else {
+      copyInviteCode()
+    }
+  }
+
+  const totalSteps = flow === 'create' ? 4 : 3
+  const stepLabels = flow === 'create'
+    ? ['Choose', 'Setup', 'Profile', 'Invite']
+    : ['Choose', 'Join', 'Profile']
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 flex items-center justify-center p-4">
@@ -286,6 +378,51 @@ export default function OnboardingPage() {
             </div>
           )}
 
+          {/* Step 4: Invite family (create flow only) */}
+          {step === 4 && (
+            <div className="space-y-5">
+              <div className="mb-2">
+                <h2 className="text-xl font-bold text-gray-900">Invite your family</h2>
+                <p className="text-gray-500 text-sm mt-1">
+                  Share this code with your family. They can join Nest and everything stays in sync.
+                </p>
+              </div>
+              <div className="flex flex-col items-center gap-4 py-4">
+                <div className="p-6 bg-indigo-50 rounded-2xl text-center w-full">
+                  <p className="text-xs text-indigo-500 font-semibold uppercase tracking-wider mb-2">Invite Code</p>
+                  <code className="text-3xl font-mono font-bold text-indigo-700 tracking-[0.3em]">
+                    {createdInviteCode}
+                  </code>
+                </div>
+                <div className="flex gap-3 w-full">
+                  <Button
+                    variant="outline"
+                    onClick={copyInviteCode}
+                    className={cn(
+                      'flex-1 gap-2',
+                      codeCopied ? 'border-emerald-300 text-emerald-700 bg-emerald-50' : ''
+                    )}
+                  >
+                    {codeCopied ? <><Check size={16} /> Copied!</> : <><Copy size={16} /> Copy code</>}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={shareInviteCode}
+                    className="flex-1 gap-2"
+                  >
+                    <Share2 size={16} /> Share
+                  </Button>
+                </div>
+              </div>
+              <Button
+                onClick={() => router.push('/dashboard')}
+                className="w-full bg-indigo-600 hover:bg-indigo-700 gap-2"
+              >
+                <Check size={16} /> Done, go to dashboard
+              </Button>
+            </div>
+          )}
+
           {/* Step 3: Profile */}
           {step === 3 && (
             <div className="space-y-5">
@@ -358,7 +495,10 @@ export default function OnboardingPage() {
         </div>
 
         <p className="text-center text-xs text-gray-400 mt-6">
-          By continuing you agree to Nest&apos;s terms of service and privacy policy.
+          By continuing you agree to Nest&apos;s{' '}
+          <a href="/terms" className="underline hover:text-gray-600 transition-colors">terms of service</a>
+          {' '}and{' '}
+          <a href="/privacy" className="underline hover:text-gray-600 transition-colors">privacy policy</a>.
         </p>
       </div>
     </div>

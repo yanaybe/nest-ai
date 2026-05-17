@@ -45,7 +45,28 @@ export async function POST(req: NextRequest) {
       include: { members: true },
     })
 
-    return NextResponse.json({ household }, { status: 201 })
+    const member = household.members[0]
+
+    // Create starter content so new households don't start with an empty dashboard
+    await db.groceryItem.createMany({
+      data: [
+        { householdId: household.id, name: 'Milk', category: 'Dairy', addedBy: member.id },
+        { householdId: household.id, name: 'Bread', category: 'Bakery', addedBy: member.id },
+        { householdId: household.id, name: 'Eggs', category: 'Dairy', addedBy: member.id },
+      ],
+    })
+
+    await db.task.create({
+      data: {
+        householdId: household.id,
+        title: 'Welcome to Nest! Try asking the AI to add groceries',
+        description: 'Tap "Ask Nest" and say "Add milk and eggs to the grocery list"',
+        priority: 'LOW',
+        creatorId: member.id,
+      },
+    })
+
+    return NextResponse.json({ household, inviteCode: household.inviteCode }, { status: 201 })
   } catch (err) {
     if (err instanceof z.ZodError) return NextResponse.json({ error: err.issues }, { status: 400 })
     console.error('Create household error:', err)

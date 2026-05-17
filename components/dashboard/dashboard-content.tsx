@@ -1,11 +1,54 @@
 'use client'
 
+// TODO [PERFORMANCE]:
+// This entire component is a client component ('use client') that receives all its data
+// as props from a server component. This means:
+// 1. The full data payload (tasks, grocery, events, expenses, members) is serialized and
+//    sent over the network on every page load, even if the user is on a slow mobile connection
+// 2. There's no incremental data loading — everything or nothing
+//
+// Suggested improvements:
+// - Keep the greeting/header as a client component for personalization
+// - Convert each card (Tasks, Grocery, Calendar, Expenses) into a Server Component with its
+//   own data fetch, so each section can stream independently (React Suspense + streaming)
+// - Add React.memo() to prevent re-renders when sibling state changes (though currently the
+//   whole component is static after initial render, so this matters more if interactivity is added)
+// - Consider adding SWR or React Query on the client to periodically refresh dashboard data
+//   without a full page reload (stale-while-revalidate pattern)
+//
+// Expected impact: On slow connections, streaming each card independently means users see
+// content progressively rather than waiting for all 4 DB queries to complete.
+
+// TODO [UX]:
+// When a user's dashboard is completely empty (no tasks, no grocery items, no events),
+// the dashboard shows 4 "EmptyState" cards which is demotivating. New users churn when
+// they see an empty product — they don't understand the value until they've used it.
+//
+// Suggested fix:
+// - Detect first-time users (member.joinedAt within last 24 hours)
+// - Show a full-screen "Getting started" experience instead of the normal dashboard
+// - Include 3 guided actions: "Add your first task", "Add something to buy", "Ask Nest something"
+// - Auto-generate starter data via AI during onboarding (see onboarding/page.tsx TODO)
+// - Show a "Welcome to Nest!" celebration animation on first load
+
+// TODO [SCALABILITY]:
+// The dashboard page.tsx fetches up to 5 tasks, 6 grocery items, 5 events, and 5 expenses
+// in parallel. This is fine at small scale. At large scale (households with 100+ tasks,
+// ongoing shopping lists, etc.), these queries will get slow.
+//
+// Suggested improvements:
+// - Add database indexes on frequently queried fields: Task(householdId, status, dueDate),
+//   GroceryItem(householdId, checked), CalendarEvent(householdId, startAt)
+// - Add Redis caching for dashboard data with a 60-second TTL (invalidated on mutations)
+// - Consider materialized views for expensive aggregations like totalSpentThisMonth
+
 import Link from 'next/link'
+import { useState } from 'react'
 import type { CalendarEvent, Expense, GroceryItem, Household, HouseholdMember, Task } from '@prisma/client'
 import {
   ShoppingCart, CheckSquare, Calendar, DollarSign, Plus,
   MessageSquare, ArrowRight, Flame, Sparkles, Clock,
-  AlertCircle, TrendingUp, ChevronRight
+  AlertCircle, TrendingUp, ChevronRight, Check
 } from 'lucide-react'
 import { format, isToday, isTomorrow, isPast, formatDistanceToNow } from 'date-fns'
 import { Button } from '@/components/ui/button'
@@ -29,12 +72,6 @@ function formatEventDate(date: Date) {
   return format(date, 'MMM d')
 }
 
-const URGENCY_SUGGESTIONS = [
-  'Add milk, bread, and eggs',
-  "What's on the calendar this week?",
-  'How much did we spend this month?',
-  'What tasks are due soon?',
-]
 
 export function DashboardContent({
   member,
@@ -45,6 +82,7 @@ export function DashboardContent({
   totalSpentThisMonth,
   recentExpenses = [],
 }: Props) {
+  const [tasksDone, setTasksDone] = useState<Set<string>>(new Set())
   const hour = new Date().getHours()
   const greeting =
     hour < 5 ? 'Good night' :
@@ -52,13 +90,43 @@ export function DashboardContent({
     hour < 17 ? 'Good afternoon' : 'Good evening'
 
   const overdueCount = pendingTasks.filter(
-    (t) => t.dueDate && isPast(new Date(t.dueDate))
+    (t) => t.dueDate && isPast(new Date(t.dueDate)) && !tasksDone.has(t.id)
   ).length
 
   const urgentGrocery = groceryItems.filter((i) => i.urgent).length
 
   const todayEvents = upcomingEvents.filter((e) => isToday(new Date(e.startAt)))
   const tomorrowEvents = upcomingEvents.filter((e) => isTomorrow(new Date(e.startAt)))
+
+  // Dynamic AI suggestions based on household state
+  const dynamicSuggestions = [
+    overdueCount > 0 ? `What ${overdueCount > 1 ? `${overdueCount} tasks are` : 'task is'} overdue?` : null,
+    groceryItems.length === 0 ? 'What should I add to the grocery list?' : null,
+    urgentGrocery > 0 ? `We have ${urgentGrocery} urgent grocery item${urgentGrocery > 1 ? 's' : ''} — can you help?` : null,
+    todayEvents.length > 0 ? `What's happening today?` : null,
+    recentExpenses.length === 0 ? "Help me track this month's spending" : null,
+    'How much did we spend this month?',
+    'What tasks are due this week?',
+    "What's on the calendar?",
+  ].filter(Boolean).slice(0, 4) as string[]
+
+  async function completeTask(taskId: string) {
+    setTasksDone(prev => new Set([...prev, taskId]))
+    try {
+      await fetch(`/api/tasks/${taskId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'DONE' }),
+      })
+    } catch {
+      // Revert on error
+      setTasksDone(prev => {
+        const next = new Set(prev)
+        next.delete(taskId)
+        return next
+      })
+    }
+  }
 
   return (
     <div className="p-4 md:p-6 max-w-6xl mx-auto animate-fade-in-up">
@@ -99,6 +167,15 @@ export function DashboardContent({
           </Link>
         </div>
       )}
+
+      {/* TODO [UX]: Stats currently show raw counts but no trend data. A user seeing
+        "5 open tasks" doesn't know if that's better or worse than last week. Consider:
+        - Show week-over-week delta as a small arrow (↑2 from last week)
+        - Color-code by health: green (improving), amber (steady), red (worsening)
+        - Make the "Spent this month" card show % of budget used if budgets are set
+        - Add sparkline mini-charts for expenses and task completion rate
+        These changes transform the dashboard from a count display into an actual
+        household health indicator. */}
 
       {/* ─── Stats row ───────────────────────────────────────────── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
@@ -160,6 +237,17 @@ export function DashboardContent({
       {/* ─── Main grid ───────────────────────────────────────────── */}
       <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
 
+        {/* TODO [UX]: Dashboard task cards are read-only. The user has to click "All" → navigate
+          to /tasks to complete a task. This is too many steps for the most common action.
+          Add inline task completion: clicking the checkbox circle should immediately mark the task done
+          with an optimistic update (useOptimistic pattern — already used in grocery-list.tsx).
+          The dashboard should be the daily command center, not a read-only summary. */}
+
+        {/* TODO [UX]: Clicking a task in the dashboard doesn't do anything — no navigation to
+          the task detail or /tasks page. The entire row should be clickable and navigate to /tasks
+          with the task highlighted or to a task detail modal. Dead clicks on interactive-looking
+          UI elements erode trust and feel broken. */}
+
         {/* Tasks */}
         <div className="bg-white rounded-2xl border border-gray-100 p-5">
           <div className="flex items-center justify-between mb-4">
@@ -186,20 +274,34 @@ export function DashboardContent({
           ) : (
             <div className="space-y-1.5">
               {pendingTasks.map((task) => {
-                const isOverdue = task.dueDate && isPast(new Date(task.dueDate))
+                const isDone = tasksDone.has(task.id)
+                const isOverdue = task.dueDate && isPast(new Date(task.dueDate)) && !isDone
                 return (
                   <div key={task.id} className="flex items-center gap-3 px-2 py-2 rounded-xl hover:bg-gray-50 transition-colors group">
-                    <div className={cn(
-                      'w-4 h-4 rounded border-2 flex-shrink-0 transition-colors',
-                      isOverdue ? 'border-red-300' : 'border-gray-300 group-hover:border-indigo-400'
-                    )} />
+                    <button
+                      onClick={() => !isDone && completeTask(task.id)}
+                      disabled={isDone}
+                      className={cn(
+                        'w-4 h-4 rounded border-2 flex-shrink-0 transition-all flex items-center justify-center',
+                        isDone
+                          ? 'bg-emerald-500 border-emerald-500'
+                          : isOverdue
+                          ? 'border-red-300 hover:border-red-500'
+                          : 'border-gray-300 hover:border-indigo-400'
+                      )}
+                    >
+                      {isDone && <Check size={9} className="text-white" />}
+                    </button>
                     <div className="flex-1 min-w-0">
-                      <p className={cn('text-sm font-medium truncate', isOverdue ? 'text-red-700' : 'text-gray-900')}>
+                      <p className={cn(
+                        'text-sm font-medium truncate',
+                        isDone ? 'line-through text-gray-400' : isOverdue ? 'text-red-700' : 'text-gray-900'
+                      )}>
                         {task.title}
                       </p>
                       <div className="flex items-center gap-2 mt-0.5">
                         {task.dueDate && (
-                          <p className={cn('text-[11px] flex items-center gap-0.5', isOverdue ? 'text-red-500' : 'text-gray-400')}>
+                          <p className={cn('text-[11px] flex items-center gap-0.5', isDone ? 'text-gray-300' : isOverdue ? 'text-red-500' : 'text-gray-400')}>
                             <Clock size={9} />
                             {isOverdue
                               ? `Overdue ${formatDistanceToNow(new Date(task.dueDate), { addSuffix: true })}`
@@ -377,7 +479,7 @@ export function DashboardContent({
             </div>
           </div>
           <div className="space-y-1.5 mb-4">
-            {URGENCY_SUGGESTIONS.map((suggestion) => (
+            {dynamicSuggestions.map((suggestion) => (
               <Link key={suggestion} href={`/chat?q=${encodeURIComponent(suggestion)}`}>
                 <div className="bg-white/10 hover:bg-white/20 transition-colors rounded-xl px-3 py-2 text-xs text-white/90 cursor-pointer press-effect flex items-center gap-2">
                   <MessageSquare size={11} className="text-white/60 flex-shrink-0" />
@@ -392,6 +494,14 @@ export function DashboardContent({
             </button>
           </Link>
         </div>
+
+        {/* TODO [UX]: The household members widget shows name and role but no activity status.
+          Consider showing:
+          - "Last active X ago" (requires tracking lastActiveAt on HouseholdMember)
+          - Which tasks are assigned to each member
+          - A small avatar stack on shared events
+          This widget could become a mini "household pulse" — are people engaged with Nest or not?
+          That data also informs AI prompts ("David hasn't logged in for 3 days, tasks piling up"). */}
 
         {/* Quick members overview */}
         {household.members.length > 1 && (

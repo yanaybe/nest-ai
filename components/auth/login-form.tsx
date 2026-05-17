@@ -1,5 +1,32 @@
 'use client'
 
+// TODO [SECURITY]:
+// The login form has no client-side rate limiting. A user could rapidly submit the form
+// hundreds of times in a loop without any throttle. Supabase has its own server-side
+// rate limiting on auth, but the UI provides no protection and will show confusing errors.
+// Add: a disabled state after N failed attempts within M seconds (e.g., 5 fails in 60s
+// disables for 30s with a countdown timer). This also improves UX for users who mistype.
+
+// TODO [UX]:
+// After a successful Google OAuth login, the user is redirected through /auth/callback
+// to /dashboard. If the user is new (no household yet), they'll be redirected to /onboarding.
+// But if something goes wrong with the redirect flow (e.g., cookies not set properly),
+// the user ends up on a blank page with no indication of what happened.
+// Add: a loading state on the Google button that persists until the redirect completes,
+// and an error handler in /auth/callback for when the OAuth exchange fails.
+
+// TODO [UX]:
+// There's no "Remember me" checkbox. By default, Supabase sessions expire based on the
+// project settings. For a household app that users check multiple times daily, a persistent
+// session (30 days) is the right default. Verify Supabase project settings have appropriate
+// session duration and that the "Remember me" behavior matches user expectations.
+
+// TODO [GROWTH]:
+// The login page has no social login options beyond Google. Many families might prefer
+// Apple Sign In (especially on iOS/Safari where Apple pushes it strongly) or phone number
+// auth (more universal, no email required). Supabase supports both.
+// Priority: Apple Sign In for App Store compliance if ever submitting as a native app.
+
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'

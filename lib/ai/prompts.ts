@@ -1,5 +1,46 @@
 import type { Household, HouseholdMember } from '@prisma/client'
 
+// TODO [AI]:
+// The system prompt is the single most impactful lever for AI quality. The current prompt
+// is good but lacks several capabilities that would make Nest feel genuinely intelligent:
+//
+// 1. NO household context beyond members:
+//    The prompt knows member names/roles and memories, but has no knowledge of:
+//    - Current grocery list contents (AI can't proactively say "you already have milk")
+//    - Pending tasks and their status
+//    - Upcoming events for conflict detection
+//    - Current month's spending vs. budget
+//    This context should be injected into the system prompt on every request (from DB, cached in Redis)
+//    so the AI can be truly proactive without the user asking for a tool call first.
+//
+// 2. NO personality consistency:
+//    The AI is instructed to be "warm and concise" but there's no character definition.
+//    Consider giving Nest a name, a consistent personality trait (e.g., organized but playful),
+//    and a voice that stays consistent across different types of requests (urgent tasks vs.
+//    casual conversation). This makes the product feel alive rather than like a generic chatbot.
+//
+// 3. NO error recovery instructions:
+//    If a tool call fails (e.g., DB connection error), the AI isn't instructed on how to handle it.
+//    Add: "If a tool fails, tell the user clearly and suggest they try again. Never silently skip
+//    a requested action."
+//
+// 4. NO proactive suggestions instruction:
+//    The AI should proactively offer value: "I noticed you haven't logged any expenses this week,
+//    would you like to add some?" But this requires real-time household state in the context window.
+//
+// 5. LOCALE/CURRENCY not used:
+//    household.currency and household.locale are in the schema but the AI prompt only passes
+//    `household.currency` as a string. The AI should format all money amounts using the locale
+//    (e.g., "₪1,250" not "ILS 1250" for Israeli users). Use Intl.NumberFormat.
+
+// TODO [SCALABILITY]:
+// The system prompt is rebuilt from scratch on every single AI request. For households with
+// many memories, this could become a significant string building operation. Consider:
+// - Caching the base system prompt per household (invalidated when household settings change)
+// - Keeping only the memories section dynamic (they change per query due to semantic search)
+// - Limiting total system prompt size — OpenAI charges for input tokens, and a bloated system
+//   prompt on every message will significantly increase costs at scale.
+
 export function buildSystemPrompt(
   household: Household & { members: HouseholdMember[] },
   member: HouseholdMember,

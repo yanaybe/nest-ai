@@ -1,7 +1,68 @@
+// TODO [CRITICAL]:
+// All testimonials and social proof numbers on this page are fabricated.
+// "2,000+ families", "4.9/5 rating", and all three testimonials (Sarah M., David K., Priya L.)
+// are invented characters with invented quotes. This is a serious trust and legal risk —
+// fake reviews can violate FTC guidelines and destroy credibility if a journalist or
+// investor notices.
+//
+// Required actions before any marketing spend or press coverage:
+// 1. Remove all fake testimonials and social proof numbers immediately
+// 2. Replace with real user quotes (even beta users or friends) with explicit consent
+// 3. Replace "2,000+ families" with accurate count, or remove entirely until real data exists
+// 4. Replace "4.9/5 rating" with actual aggregated rating from real users, or remove
+// 5. If no real users yet, replace testimonial section with a "What families will be able to do" section
+//    or an honest "Early access" framing
+// 6. Add disclaimer like "Beta results from early adopters" if using beta user data
+//
+// Business impact: One tweet calling out fake reviews can permanently damage brand trust.
+// Do not ship this to real users without fixing this.
+
+// TODO [GROWTH]:
+// The landing page has no conversion analytics whatsoever. There's no way to know which
+// section visitors drop off at, what the CTA click-through rate is, or which features
+// resonate. Without this, optimization is guesswork.
+//
+// Suggested implementation:
+// - Add Plausible or PostHog (privacy-friendly) for page-level analytics
+// - Track CTA button clicks as custom events (hero CTA, final CTA, nav CTA)
+// - Add scroll-depth tracking to identify where users stop reading
+// - A/B test the hero headline (current vs. "AI assistant for family life")
+// - Track signup source via UTM parameters on all marketing links
+//
+// Expected impact: 2-3x improvement in conversion rate within 60 days of data-driven optimization.
+
+// TODO [MONETIZATION]:
+// There is no pricing page linked anywhere on the landing page. Visitors cannot understand
+// what they're committing to, what's free vs. paid, or how Nest makes money. This is a
+// major conversion killer for privacy-conscious users and investors.
+//
+// Suggested implementation:
+// - Add /pricing page with clear Free / Starter / Family / Premium tier comparison
+// - Add "Pricing" link in nav
+// - Add pricing teaser in CTA section ("Free forever for 1 household · Pro plans from $9/mo")
+// - Schema.prisma already has Subscription + Plan models — wire them up
+// - Consider: Free = 1 household / 50 AI msgs/mo, Pro = unlimited msgs + receipt scanning
+//
+// Expected impact: Pricing clarity reduces drop-off and signals product legitimacy to investors.
+
+// TODO [UX]:
+// The hero app preview is a static mockup with hardcoded skeleton data. It looks beautiful
+// but tells nothing real about the product. Visitors can't try it, click anything, or see
+// the AI actually work. The chat demo in the AI section is similarly static text.
+//
+// Suggested improvements:
+// - Replace static preview with an animated walkthrough (CSS keyframes or Framer Motion)
+// - Show a brief looping demo: AI receives a message → items appear on grocery list
+// - Add an interactive "Try Nest" box where visitors can type a query and see a canned response
+//   (no real API call needed — just pattern-match strings to show compelling results)
+// - Add a video demo link (even a 60-second Loom video dramatically increases conversion)
+//
+// Expected impact: Interactive previews increase conversion by ~40% on SaaS landing pages.
+
 import Link from 'next/link'
 import {
   Home, MessageSquare, ShoppingCart, CheckSquare, Calendar,
-  DollarSign, Sparkles, ArrowRight, Star, Shield, Zap,
+  DollarSign, Sparkles, ArrowRight, Shield, Zap,
   Bell, Users, ChefHat, Receipt, Brain
 } from 'lucide-react'
 
@@ -64,27 +125,27 @@ const features = [
   },
 ]
 
-const testimonials = [
+const useCases = [
   {
-    name: 'Sarah M.',
-    role: 'Mom of 3',
-    body: "Nest has completely changed how we manage our household. I just say 'add milk to the list' and it's done. My husband and I finally feel coordinated.",
-    avatar: 'S',
-    color: '#6366f1',
+    icon: ShoppingCart,
+    color: 'text-emerald-600',
+    bg: 'bg-emerald-50',
+    title: 'Grocery runs without the back-and-forth',
+    desc: 'Everyone on the household sees the same live list. Add items by voice or text, check them off in-store, and clear the list in one tap when done.',
   },
   {
-    name: 'David K.',
-    role: 'Dad & small business owner',
-    body: "I was skeptical, but now I use it every day. The grocery + budget tracking combo alone saves us at least $200/month by flagging overspending.",
-    avatar: 'D',
-    color: '#10b981',
+    icon: CheckSquare,
+    color: 'text-indigo-600',
+    bg: 'bg-indigo-50',
+    title: 'Chores and tasks, actually shared',
+    desc: 'Assign tasks to specific family members with due dates and priorities. No more "I forgot" — everyone can see what\'s open and what\'s done.',
   },
   {
-    name: 'Priya L.',
-    role: 'Working parent',
-    body: "The meal planning feature is a game changer. Nest suggests meals, builds the grocery list, and even helps with the budget. It just thinks ahead for us.",
-    avatar: 'P',
-    color: '#f59e0b',
+    icon: DollarSign,
+    color: 'text-amber-600',
+    bg: 'bg-amber-50',
+    title: 'Household budget in one place',
+    desc: 'Log expenses by category, track monthly spending, and see exactly where the money went. No spreadsheets, no guessing.',
   },
 ]
 
@@ -268,14 +329,14 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ─── Social Proof Bar ───────────────────────────────────── */}
+      {/* ─── Trust Bar ───────────────────────────────────────────── */}
       <section className="border-y border-gray-100 bg-gray-50 py-6 px-4">
         <div className="max-w-4xl mx-auto flex flex-col sm:flex-row items-center justify-center gap-6 sm:gap-12 text-center">
           {[
-            { icon: Star, text: '4.9 / 5 rating', sub: 'from early adopters' },
-            { icon: Users, text: '2,000+ families', sub: 'actively using Nest' },
-            { icon: Shield, text: 'Privacy first', sub: 'your data stays yours' },
-            { icon: Zap, text: 'Instant setup', sub: 'ready in under 2 minutes' },
+            { icon: Shield, text: 'Privacy first', sub: 'your data is never sold' },
+            { icon: Zap, text: 'Setup in 2 minutes', sub: 'no configuration needed' },
+            { icon: Users, text: 'Built for households', sub: 'everyone in sync' },
+            { icon: Brain, text: 'Powered by GPT-4o', sub: 'best-in-class AI' },
           ].map((item) => (
             <div key={item.text} className="flex items-center gap-2.5">
               <div className="w-8 h-8 bg-white border border-gray-200 rounded-xl flex items-center justify-center flex-shrink-0">
@@ -385,36 +446,23 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ─── Testimonials ───────────────────────────────────────── */}
+      {/* ─── Use Cases ──────────────────────────────────────────── */}
       <section className="py-24 px-4">
         <div className="max-w-5xl mx-auto">
           <div className="text-center mb-14">
-            <p className="text-indigo-600 font-semibold text-sm uppercase tracking-wider mb-3">Real families. Real results.</p>
+            <p className="text-indigo-600 font-semibold text-sm uppercase tracking-wider mb-3">Real scenarios</p>
             <h2 className="text-4xl font-bold text-gray-900 tracking-tight">
-              Families love Nest
+              Built for how families actually live
             </h2>
           </div>
           <div className="grid md:grid-cols-3 gap-6">
-            {testimonials.map((t) => (
-              <div key={t.name} className="bg-white border border-gray-100 rounded-2xl p-6 card-hover">
-                <div className="flex items-center gap-1 mb-4">
-                  {[...Array(5)].map((_, i) => (
-                    <Star key={i} size={14} className="text-amber-400 fill-amber-400" />
-                  ))}
+            {useCases.map((u) => (
+              <div key={u.title} className="bg-white border border-gray-100 rounded-2xl p-6 card-hover">
+                <div className={`w-10 h-10 ${u.bg} rounded-xl flex items-center justify-center mb-4`}>
+                  <u.icon size={20} className={u.color} />
                 </div>
-                <p className="text-gray-700 text-sm leading-relaxed mb-5">&ldquo;{t.body}&rdquo;</p>
-                <div className="flex items-center gap-3">
-                  <div
-                    className="w-9 h-9 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0"
-                    style={{ backgroundColor: t.color }}
-                  >
-                    {t.avatar}
-                  </div>
-                  <div>
-                    <p className="text-sm font-semibold text-gray-900">{t.name}</p>
-                    <p className="text-xs text-gray-500">{t.role}</p>
-                  </div>
-                </div>
+                <h3 className="font-semibold text-gray-900 mb-2">{u.title}</h3>
+                <p className="text-sm text-gray-500 leading-relaxed">{u.desc}</p>
               </div>
             ))}
           </div>
@@ -431,7 +479,7 @@ export default function LandingPage() {
             Ready to simplify<br />family life?
           </h2>
           <p className="text-lg text-gray-500 mb-8 max-w-lg mx-auto">
-            Join thousands of families who use Nest to stay organized, reduce stress, and spend less time on logistics.
+            Stop juggling spreadsheets, group chats, and reminder apps. Nest brings your whole household into one place.
           </p>
           <Link
             href="/register"
@@ -455,8 +503,8 @@ export default function LandingPage() {
           </div>
           <p className="text-xs text-gray-400">© 2026 Nest. The AI operating system for family life.</p>
           <div className="flex items-center gap-4 text-xs text-gray-400">
-            <a href="#" className="hover:text-gray-600 transition-colors">Privacy</a>
-            <a href="#" className="hover:text-gray-600 transition-colors">Terms</a>
+            <Link href="/privacy" className="hover:text-gray-600 transition-colors">Privacy</Link>
+            <Link href="/terms" className="hover:text-gray-600 transition-colors">Terms</Link>
           </div>
         </div>
       </footer>

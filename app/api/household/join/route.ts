@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { db } from '@/lib/db'
 import { z } from 'zod'
 import { revalidatePath } from 'next/cache'
+import { joinRatelimit } from '@/lib/redis'
 
 const schema = z.object({
   inviteCode: z.string().length(8),
@@ -12,6 +13,15 @@ const schema = z.object({
 
 export async function POST(req: NextRequest) {
   try {
+    // Rate limit by IP to prevent brute-force invite code enumeration
+    const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
+      ?? req.headers.get('x-real-ip')
+      ?? 'unknown'
+    const { success: rateLimitOk } = await joinRatelimit.limit(ip)
+    if (!rateLimitOk) {
+      return NextResponse.json({ error: 'Too many attempts. Please wait a minute.' }, { status: 429 })
+    }
+
     const supabase = await createClient()
     const { data: { user }, error: authError } = await supabase.auth.getUser()
     if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })

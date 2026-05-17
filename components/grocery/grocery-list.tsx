@@ -1,8 +1,36 @@
 'use client'
 
-import { useState, useOptimistic, useTransition } from 'react'
+// TODO [UX]:
+// The grocery list is the most-used feature for most households — it's checked multiple
+// times per week during shopping. The current UI works but misses features that matter in the
+// real-world context (shopping in a store, one hand on a cart):
+//
+// 1. NO item grouping by store aisle/section:
+//    When shopping, users need items grouped by where they are in the store (produce, dairy,
+//    bakery, etc.) — not sorted by urgency. The category filter helps but doesn't auto-group.
+//    Add: "Shopping mode" that groups items by category with large, tap-friendly checkboxes.
+//
+// 2. NO quick-add via voice or barcode:
+//    The add form requires 4 taps minimum (Add item → type name → category → add).
+//    In a kitchen, users want to say "milk" or scan a barcode and have it added instantly.
+//    Consider: Web Speech API for voice add, and a barcode scanning button using the camera.
+//
+// 3. NO shared shopping — when multiple family members shop simultaneously, they can both
+//    check the same item without knowing the other did it. Need real-time sync so both
+//    users see the same checked state (Supabase realtime subscriptions).
+//
+// 4. NO price tracking — estimatedCost is in the schema but not shown. If all items have
+//    estimated costs, show a running total ("Estimated total: ~$47") that updates as you check off.
+//
+// TODO [PERFORMANCE]:
+// The grocery list loads all items (unchecked + 7-day checked history) on initial render.
+// For households that have been using Nest for months, this could be hundreds of items.
+// The component uses useOptimistic correctly for check/uncheck, but the initial data fetch
+// (server-side) has no pagination. Add: virtual scrolling or pagination for large lists.
+
+import { useState, useOptimistic, useTransition, useEffect } from 'react'
 import type { GroceryItem } from '@prisma/client'
-import { ShoppingCart, Plus, Flame, Trash2, X, Check, Loader2 } from 'lucide-react'
+import { ShoppingCart, Plus, Flame, Trash2, X, Check, Loader2, RotateCcw } from 'lucide-react'
 import { format, subDays } from 'date-fns'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -36,6 +64,13 @@ interface AddForm {
 
 const emptyForm: AddForm = { name: '', quantity: '', unit: '', category: '', urgent: false }
 
+interface DeletePending {
+  id: string
+  name: string
+  item: GroceryItem
+  timer: ReturnType<typeof setTimeout>
+}
+
 export function GroceryList({ initialItems }: Props) {
   const [items, setItems] = useState<GroceryItem[]>(initialItems)
   const [activeTab, setActiveTab] = useState<'tobuy' | 'done'>('tobuy')
@@ -45,10 +80,18 @@ export function GroceryList({ initialItems }: Props) {
   const [formError, setFormError] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [clearingChecked, setClearingChecked] = useState(false)
+  const [deletePending, setDeletePending] = useState<DeletePending | null>(null)
   const [, startTransition] = useTransition()
   const [optimisticItems, applyOptimistic] = useOptimistic(items, (state, update: Partial<GroceryItem> & { id: string }) => {
     return state.map(i => i.id === update.id ? { ...i, ...update } : i)
   })
+
+  // Cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (deletePending) clearTimeout(deletePending.timer)
+    }
+  }, [deletePending])
 
   const sevenDaysAgo = subDays(new Date(), 7)
   const unchecked = optimisticItems.filter(i => !i.checked)
@@ -87,12 +130,37 @@ export function GroceryList({ initialItems }: Props) {
   }
 
   async function deleteItem(id: string) {
-    setItems(prev => prev.filter(i => i.id !== id))
-    try {
-      await fetch(`/api/grocery/${id}`, { method: 'DELETE' })
-    } catch {
-      // silent
+    const item = items.find(i => i.id === id)
+    if (!item) return
+
+    // Cancel any pending delete first
+    if (deletePending) {
+      clearTimeout(deletePending.timer)
+      // Fire the previous pending delete immediately
+      fetch(`/api/grocery/${deletePending.id}`, { method: 'DELETE' }).catch(() => {})
     }
+
+    // Optimistically remove from UI
+    setItems(prev => prev.filter(i => i.id !== id))
+
+    // Start 4-second timer before actually deleting
+    const timer = setTimeout(async () => {
+      try {
+        await fetch(`/api/grocery/${id}`, { method: 'DELETE' })
+      } catch {
+        // silent
+      }
+      setDeletePending(null)
+    }, 4000)
+
+    setDeletePending({ id, name: item.name, item, timer })
+  }
+
+  function undoDelete() {
+    if (!deletePending) return
+    clearTimeout(deletePending.timer)
+    setItems(prev => [deletePending.item, ...prev])
+    setDeletePending(null)
   }
 
   async function addItem() {
@@ -135,7 +203,12 @@ export function GroceryList({ initialItems }: Props) {
     const checkedItems = items.filter(i => i.checked)
     setItems(prev => prev.filter(i => !i.checked))
     try {
-      await Promise.all(checkedItems.map(i => fetch(`/api/grocery/${i.id}`, { method: 'DELETE' })))
+      const ids = checkedItems.map(i => i.id)
+      await fetch('/api/grocery/bulk-delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids }),
+      })
     } catch {
       // silent
     } finally {
@@ -144,7 +217,21 @@ export function GroceryList({ initialItems }: Props) {
   }
 
   return (
-    <div className="p-6 max-w-3xl mx-auto space-y-6">
+    <div className="p-6 max-w-3xl mx-auto space-y-6 relative">
+      {/* Undo toast */}
+      {deletePending && (
+        <div className="fixed bottom-20 md:bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 bg-gray-900 text-white px-4 py-3 rounded-2xl shadow-xl animate-fade-in-up">
+          <span className="text-sm">Removed <span className="font-medium">{deletePending.name}</span></span>
+          <span className="text-gray-500">·</span>
+          <button
+            onClick={undoDelete}
+            className="text-sm font-semibold text-indigo-400 hover:text-indigo-300 flex items-center gap-1.5 transition-colors"
+          >
+            <RotateCcw size={13} /> Undo
+          </button>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
