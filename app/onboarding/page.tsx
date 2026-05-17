@@ -53,7 +53,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Home, Users, ChevronRight, ArrowLeft, Check, Loader2 } from 'lucide-react'
+import { Home, Users, ChevronRight, ArrowLeft, Check, Loader2, Copy, Share2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -86,7 +86,7 @@ const AVATAR_COLORS = [
 export default function OnboardingPage() {
   const router = useRouter()
 
-  const [step, setStep] = useState<1 | 2 | 3>(1)
+  const [step, setStep] = useState<1 | 2 | 3 | 4>(1)
   const [flow, setFlow] = useState<Flow>('none')
 
   // Create form
@@ -100,6 +100,10 @@ export default function OnboardingPage() {
   // Step 3
   const [displayName, setDisplayName] = useState('')
   const [color, setColor] = useState('#6366f1')
+
+  // Step 4 (invite)
+  const [createdInviteCode, setCreatedInviteCode] = useState('')
+  const [codeCopied, setCodeCopied] = useState(false)
 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -152,6 +156,10 @@ export default function OnboardingPage() {
           setError(typeof data.error === 'string' ? data.error : 'Failed to create household')
           return
         }
+        const data = await res.json()
+        setCreatedInviteCode(data.inviteCode ?? '')
+        // Show Step 4: invite family
+        setStep(4)
       } else {
         const res = await fetch('/api/household/join', {
           method: 'POST',
@@ -167,16 +175,8 @@ export default function OnboardingPage() {
           setError(typeof data.error === 'string' ? data.error : 'Failed to join household')
           return
         }
+        router.push('/dashboard')
       }
-      // TODO [GROWTH]: After successful household creation, instead of going straight to /dashboard,
-      // go to a dedicated "invite family" step or a "your household is ready" celebration screen
-      // that shows the invite code prominently and encourages sharing. This is the highest-ROI
-      // moment to get viral sharing — users are most excited right after setup completes.
-      //
-      // Also consider: trigger an AI-generated "starter pack" here — auto-create 3 sample tasks
-      // ("Welcome to Nest!", "Set up your grocery list", "Add your first event") so the dashboard
-      // doesn't look empty on first load. Empty state is the #1 reason new users churn.
-      router.push('/dashboard')
     } catch {
       setError('Something went wrong. Please try again.')
     } finally {
@@ -184,8 +184,37 @@ export default function OnboardingPage() {
     }
   }
 
-  const totalSteps = 3
-  const stepLabels = ['Choose', flow === 'create' ? 'Setup' : 'Join', 'Profile']
+  async function copyInviteCode() {
+    try {
+      await navigator.clipboard.writeText(createdInviteCode)
+      setCodeCopied(true)
+      setTimeout(() => setCodeCopied(false), 2000)
+    } catch {
+      // fallback
+    }
+  }
+
+  async function shareInviteCode() {
+    if (typeof navigator !== 'undefined' && navigator.share) {
+      try {
+        await navigator.share({
+          title: 'Join my household on Nest',
+          text: `Join my household on Nest — the AI family assistant. Use invite code: ${createdInviteCode}`,
+          url: window.location.origin + '/onboarding',
+        })
+      } catch {
+        // User dismissed share — fallback to copy
+        copyInviteCode()
+      }
+    } else {
+      copyInviteCode()
+    }
+  }
+
+  const totalSteps = flow === 'create' ? 4 : 3
+  const stepLabels = flow === 'create'
+    ? ['Choose', 'Setup', 'Profile', 'Invite']
+    : ['Choose', 'Join', 'Profile']
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 flex items-center justify-center p-4">
@@ -349,6 +378,51 @@ export default function OnboardingPage() {
             </div>
           )}
 
+          {/* Step 4: Invite family (create flow only) */}
+          {step === 4 && (
+            <div className="space-y-5">
+              <div className="mb-2">
+                <h2 className="text-xl font-bold text-gray-900">Invite your family</h2>
+                <p className="text-gray-500 text-sm mt-1">
+                  Share this code with your family. They can join Nest and everything stays in sync.
+                </p>
+              </div>
+              <div className="flex flex-col items-center gap-4 py-4">
+                <div className="p-6 bg-indigo-50 rounded-2xl text-center w-full">
+                  <p className="text-xs text-indigo-500 font-semibold uppercase tracking-wider mb-2">Invite Code</p>
+                  <code className="text-3xl font-mono font-bold text-indigo-700 tracking-[0.3em]">
+                    {createdInviteCode}
+                  </code>
+                </div>
+                <div className="flex gap-3 w-full">
+                  <Button
+                    variant="outline"
+                    onClick={copyInviteCode}
+                    className={cn(
+                      'flex-1 gap-2',
+                      codeCopied ? 'border-emerald-300 text-emerald-700 bg-emerald-50' : ''
+                    )}
+                  >
+                    {codeCopied ? <><Check size={16} /> Copied!</> : <><Copy size={16} /> Copy code</>}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={shareInviteCode}
+                    className="flex-1 gap-2"
+                  >
+                    <Share2 size={16} /> Share
+                  </Button>
+                </div>
+              </div>
+              <Button
+                onClick={() => router.push('/dashboard')}
+                className="w-full bg-indigo-600 hover:bg-indigo-700 gap-2"
+              >
+                <Check size={16} /> Done, go to dashboard
+              </Button>
+            </div>
+          )}
+
           {/* Step 3: Profile */}
           {step === 3 && (
             <div className="space-y-5">
@@ -420,12 +494,11 @@ export default function OnboardingPage() {
           )}
         </div>
 
-        {/* TODO [SECURITY]: "terms of service and privacy policy" are not linked — they link
-          to nothing. These are legally required before collecting user data. The user is
-          explicitly consenting to terms that don't exist. Replace with actual /terms and /privacy
-          links before any public launch. This is a legal liability. */}
         <p className="text-center text-xs text-gray-400 mt-6">
-          By continuing you agree to Nest&apos;s terms of service and privacy policy.
+          By continuing you agree to Nest&apos;s{' '}
+          <a href="/terms" className="underline hover:text-gray-600 transition-colors">terms of service</a>
+          {' '}and{' '}
+          <a href="/privacy" className="underline hover:text-gray-600 transition-colors">privacy policy</a>.
         </p>
       </div>
     </div>
