@@ -55,17 +55,37 @@ export function getRateLimiter(prefix: string, max: number, window: string) {
   })
 }
 
+const isRedisConfigured = () => {
+  const url = process.env.UPSTASH_REDIS_REST_URL
+  return !(!url || url === 'your_upstash_url')
+}
+
 export const aiRatelimit = {
   limit: async (identifier: string) => {
+    // If Redis is not configured at all, fail open (non-Redis dev setups)
+    if (!isRedisConfigured()) return { success: true, remaining: 999 }
     const redis = getRedisClient()
-    if (!redis) return { success: true, remaining: 999 }
-    const limiter = new Ratelimit({
-      redis,
-      limiter: Ratelimit.slidingWindow(20, '1 m'),
-      analytics: true,
-      prefix: 'nest:ai',
-    })
-    return limiter.limit(identifier)
+    // If Redis IS configured but unavailable, fail closed for AI (prevent unconstrained spend)
+    if (!redis) return { success: false, remaining: 0 }
+    try {
+      const limiter = new Ratelimit({
+        redis,
+        limiter: Ratelimit.slidingWindow(20, '1 m'),
+        analytics: true,
+        prefix: 'nest:ai',
+      })
+      return limiter.limit(identifier)
+    } catch {
+      // Redis configured but failing at runtime → fail closed for AI
+      return { success: false, remaining: 0 }
+    }
+  },
+}
+
+// Rate-limit AI requests by household (20 req/min per household)
+export const aiRatelimitByHousehold = {
+  limit: async (householdId: string) => {
+    return aiRatelimit.limit(`household:${householdId}`)
   },
 }
 
@@ -73,12 +93,36 @@ export const apiRatelimit = {
   limit: async (identifier: string) => {
     const redis = getRedisClient()
     if (!redis) return { success: true, remaining: 999 }
-    const limiter = new Ratelimit({
-      redis,
-      limiter: Ratelimit.slidingWindow(100, '1 m'),
-      analytics: true,
-      prefix: 'nest:api',
-    })
-    return limiter.limit(identifier)
+    try {
+      const limiter = new Ratelimit({
+        redis,
+        limiter: Ratelimit.slidingWindow(100, '1 m'),
+        analytics: true,
+        prefix: 'nest:api',
+      })
+      return limiter.limit(identifier)
+    } catch {
+      return { success: true, remaining: 999 }
+    }
+  },
+}
+
+// Rate limiter for join endpoint: 5 attempts per minute per IP
+export const joinRatelimit = {
+  limit: async (ip: string) => {
+    if (!isRedisConfigured()) return { success: true, remaining: 999 }
+    const redis = getRedisClient()
+    if (!redis) return { success: true, remaining: 999 }
+    try {
+      const limiter = new Ratelimit({
+        redis,
+        limiter: Ratelimit.slidingWindow(5, '1 m'),
+        analytics: true,
+        prefix: 'nest:join',
+      })
+      return limiter.limit(ip)
+    } catch {
+      return { success: true, remaining: 999 }
+    }
   },
 }

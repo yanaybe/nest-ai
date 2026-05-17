@@ -71,6 +71,13 @@ export async function POST(req: NextRequest) {
     const body = await req.json()
     const data = createSchema.parse(body)
 
+    if (data.assigneeId) {
+      const assignee = await db.householdMember.findFirst({
+        where: { id: data.assigneeId, householdId: member.householdId }
+      })
+      if (!assignee) return NextResponse.json({ error: 'Invalid assignee' }, { status: 400 })
+    }
+
     const task = await db.task.create({
       data: {
         householdId: member.householdId,

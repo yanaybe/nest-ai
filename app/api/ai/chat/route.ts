@@ -41,7 +41,7 @@ import { openai, MAIN_MODEL } from '@/lib/ai/client'
 import { buildSystemPrompt } from '@/lib/ai/prompts'
 import { createTools } from '@/lib/ai/tools'
 import { searchMemories, storeMemory } from '@/lib/ai/memory'
-import { aiRatelimit } from '@/lib/redis'
+import { aiRatelimitByHousehold } from '@/lib/redis'
 import { z } from 'zod'
 
 const schema = z.object({
@@ -59,8 +59,15 @@ export async function POST(req: NextRequest) {
     const { data: { user }, error: authError } = await supabase.auth.getUser()
     if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-    // Rate limit
-    const { success, remaining } = await aiRatelimit.limit(user.id)
+    // Get household + member first (needed for rate limiting by household)
+    const member = await db.householdMember.findFirst({
+      where: { userId: user.id },
+      include: { household: { include: { members: true } } },
+    })
+    if (!member) return NextResponse.json({ error: 'No household found' }, { status: 404 })
+
+    // Rate limit by household (not just user) to prevent multi-member abuse
+    const { success, remaining } = await aiRatelimitByHousehold.limit(member.householdId)
     if (!success) {
       return NextResponse.json(
         { error: 'Too many requests. Please slow down.' },
@@ -68,42 +75,39 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // Get household + member
-    const member = await db.householdMember.findFirst({
-      where: { userId: user.id },
-      include: { household: { include: { members: true } } },
-    })
-    if (!member) return NextResponse.json({ error: 'No household found' }, { status: 404 })
-
     const { messages, conversationId } = schema.parse(await req.json())
     const lastUserMessage = messages[messages.length - 1].content
 
-    // TODO [PERFORMANCE]: searchMemories() makes an OpenAI API call (text-embedding-3-small)
-    // on every single chat request, even for simple greetings like "hello" where memories
-    // add no value. This adds ~100-200ms of latency and costs money unnecessarily.
-    // Optimization: skip memory search for short messages (< 10 words) or messages that
-    // don't contain household-relevant keywords. Use a simple heuristic: if the message
-    // doesn't contain any nouns, skip the memory search.
-    //
-    // Also: run memory search and member DB lookup in parallel (Promise.all) since they
-    // are independent operations. Currently they run sequentially, doubling latency.
-    const memories = await searchMemories(member.householdId, lastUserMessage, 6)
+    // Parallelize: conversation ownership check (or creation) + memory search
+    let convId = conversationId
+    let memories: Awaited<ReturnType<typeof searchMemories>>
+
+    if (convId) {
+      // Continuing an existing conversation: verify ownership and search memories in parallel
+      const [verifiedConv, memories_] = await Promise.all([
+        db.aIConversation.findFirst({ where: { id: convId, householdId: member.householdId } }),
+        searchMemories(member.householdId, lastUserMessage, 6),
+      ])
+      if (!verifiedConv) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+      memories = memories_
+    } else {
+      // New conversation: create it and search memories in parallel
+      const [conv, memories_] = await Promise.all([
+        db.aIConversation.create({
+          data: {
+            householdId: member.householdId,
+            memberId: member.id,
+            title: lastUserMessage.slice(0, 60),
+          },
+        }),
+        searchMemories(member.householdId, lastUserMessage, 6),
+      ])
+      convId = conv.id
+      memories = memories_
+    }
 
     // Build system prompt
     const systemPrompt = buildSystemPrompt(member.household, member, memories)
-
-    // Get or create conversation
-    let convId = conversationId
-    if (!convId) {
-      const conv = await db.aIConversation.create({
-        data: {
-          householdId: member.householdId,
-          memberId: member.id,
-          title: lastUserMessage.slice(0, 60),
-        },
-      })
-      convId = conv.id
-    }
 
     // Save user message to DB
     await db.aIMessage.create({
