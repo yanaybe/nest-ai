@@ -43,11 +43,12 @@
 // - Consider materialized views for expensive aggregations like totalSpentThisMonth
 
 import Link from 'next/link'
+import { useState } from 'react'
 import type { CalendarEvent, Expense, GroceryItem, Household, HouseholdMember, Task } from '@prisma/client'
 import {
   ShoppingCart, CheckSquare, Calendar, DollarSign, Plus,
   MessageSquare, ArrowRight, Flame, Sparkles, Clock,
-  AlertCircle, TrendingUp, ChevronRight
+  AlertCircle, TrendingUp, ChevronRight, Check
 } from 'lucide-react'
 import { format, isToday, isTomorrow, isPast, formatDistanceToNow } from 'date-fns'
 import { Button } from '@/components/ui/button'
@@ -71,29 +72,6 @@ function formatEventDate(date: Date) {
   return format(date, 'MMM d')
 }
 
-// TODO [AI]:
-// These suggestions are hardcoded and will always be the same regardless of the household's
-// actual situation. A user who already bought eggs yesterday doesn't need "add milk, bread, eggs".
-// A user with no upcoming events doesn't care about the calendar question.
-//
-// Suggested improvement:
-// - Make suggestions dynamic based on actual household state:
-//   - If there are overdue tasks → "What tasks are overdue?"
-//   - If grocery list is empty → "What should I add to the grocery list?"
-//   - If it's Sunday → "Can you plan meals for this week?"
-//   - If there's a bill due soon → "When is [bill name] due?"
-// - Generate suggestions server-side based on current data, pass as props
-// - Alternatively: fetch personalized suggestions from a lightweight AI call on page load
-//   (cached per household, refreshed daily)
-//
-// Expected impact: Contextually relevant suggestions dramatically increase click-through rate
-// on the AI CTA and drive real engagement rather than generic exploration.
-const URGENCY_SUGGESTIONS = [
-  'Add milk, bread, and eggs',
-  "What's on the calendar this week?",
-  'How much did we spend this month?',
-  'What tasks are due soon?',
-]
 
 export function DashboardContent({
   member,
@@ -104,6 +82,7 @@ export function DashboardContent({
   totalSpentThisMonth,
   recentExpenses = [],
 }: Props) {
+  const [tasksDone, setTasksDone] = useState<Set<string>>(new Set())
   const hour = new Date().getHours()
   const greeting =
     hour < 5 ? 'Good night' :
@@ -111,13 +90,43 @@ export function DashboardContent({
     hour < 17 ? 'Good afternoon' : 'Good evening'
 
   const overdueCount = pendingTasks.filter(
-    (t) => t.dueDate && isPast(new Date(t.dueDate))
+    (t) => t.dueDate && isPast(new Date(t.dueDate)) && !tasksDone.has(t.id)
   ).length
 
   const urgentGrocery = groceryItems.filter((i) => i.urgent).length
 
   const todayEvents = upcomingEvents.filter((e) => isToday(new Date(e.startAt)))
   const tomorrowEvents = upcomingEvents.filter((e) => isTomorrow(new Date(e.startAt)))
+
+  // Dynamic AI suggestions based on household state
+  const dynamicSuggestions = [
+    overdueCount > 0 ? `What ${overdueCount > 1 ? `${overdueCount} tasks are` : 'task is'} overdue?` : null,
+    groceryItems.length === 0 ? 'What should I add to the grocery list?' : null,
+    urgentGrocery > 0 ? `We have ${urgentGrocery} urgent grocery item${urgentGrocery > 1 ? 's' : ''} — can you help?` : null,
+    todayEvents.length > 0 ? `What's happening today?` : null,
+    recentExpenses.length === 0 ? "Help me track this month's spending" : null,
+    'How much did we spend this month?',
+    'What tasks are due this week?',
+    "What's on the calendar?",
+  ].filter(Boolean).slice(0, 4) as string[]
+
+  async function completeTask(taskId: string) {
+    setTasksDone(prev => new Set([...prev, taskId]))
+    try {
+      await fetch(`/api/tasks/${taskId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'DONE' }),
+      })
+    } catch {
+      // Revert on error
+      setTasksDone(prev => {
+        const next = new Set(prev)
+        next.delete(taskId)
+        return next
+      })
+    }
+  }
 
   return (
     <div className="p-4 md:p-6 max-w-6xl mx-auto animate-fade-in-up">
@@ -265,20 +274,34 @@ export function DashboardContent({
           ) : (
             <div className="space-y-1.5">
               {pendingTasks.map((task) => {
-                const isOverdue = task.dueDate && isPast(new Date(task.dueDate))
+                const isDone = tasksDone.has(task.id)
+                const isOverdue = task.dueDate && isPast(new Date(task.dueDate)) && !isDone
                 return (
                   <div key={task.id} className="flex items-center gap-3 px-2 py-2 rounded-xl hover:bg-gray-50 transition-colors group">
-                    <div className={cn(
-                      'w-4 h-4 rounded border-2 flex-shrink-0 transition-colors',
-                      isOverdue ? 'border-red-300' : 'border-gray-300 group-hover:border-indigo-400'
-                    )} />
+                    <button
+                      onClick={() => !isDone && completeTask(task.id)}
+                      disabled={isDone}
+                      className={cn(
+                        'w-4 h-4 rounded border-2 flex-shrink-0 transition-all flex items-center justify-center',
+                        isDone
+                          ? 'bg-emerald-500 border-emerald-500'
+                          : isOverdue
+                          ? 'border-red-300 hover:border-red-500'
+                          : 'border-gray-300 hover:border-indigo-400'
+                      )}
+                    >
+                      {isDone && <Check size={9} className="text-white" />}
+                    </button>
                     <div className="flex-1 min-w-0">
-                      <p className={cn('text-sm font-medium truncate', isOverdue ? 'text-red-700' : 'text-gray-900')}>
+                      <p className={cn(
+                        'text-sm font-medium truncate',
+                        isDone ? 'line-through text-gray-400' : isOverdue ? 'text-red-700' : 'text-gray-900'
+                      )}>
                         {task.title}
                       </p>
                       <div className="flex items-center gap-2 mt-0.5">
                         {task.dueDate && (
-                          <p className={cn('text-[11px] flex items-center gap-0.5', isOverdue ? 'text-red-500' : 'text-gray-400')}>
+                          <p className={cn('text-[11px] flex items-center gap-0.5', isDone ? 'text-gray-300' : isOverdue ? 'text-red-500' : 'text-gray-400')}>
                             <Clock size={9} />
                             {isOverdue
                               ? `Overdue ${formatDistanceToNow(new Date(task.dueDate), { addSuffix: true })}`
@@ -456,7 +479,7 @@ export function DashboardContent({
             </div>
           </div>
           <div className="space-y-1.5 mb-4">
-            {URGENCY_SUGGESTIONS.map((suggestion) => (
+            {dynamicSuggestions.map((suggestion) => (
               <Link key={suggestion} href={`/chat?q=${encodeURIComponent(suggestion)}`}>
                 <div className="bg-white/10 hover:bg-white/20 transition-colors rounded-xl px-3 py-2 text-xs text-white/90 cursor-pointer press-effect flex items-center gap-2">
                   <MessageSquare size={11} className="text-white/60 flex-shrink-0" />

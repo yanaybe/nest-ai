@@ -26,11 +26,11 @@
 // - Or better: Supabase realtime subscriptions on the tasks table for live updates
 // This is especially important in a household app where multiple people act simultaneously.
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import type { HouseholdMember, Task } from '@prisma/client'
 import {
   CheckSquare, Plus, X, Loader2, Trash2, Calendar, User, ChevronDown, ChevronRight,
-  Circle, Clock, CheckCircle2, XCircle,
+  Circle, Clock, CheckCircle2, XCircle, RotateCcw,
 } from 'lucide-react'
 import { format, isToday, isTomorrow, isPast } from 'date-fns'
 import { Button } from '@/components/ui/button'
@@ -79,6 +79,13 @@ function formatDueDate(date: Date) {
   return format(date, 'MMM d')
 }
 
+interface DeletePending {
+  id: string
+  title: string
+  task: TaskWithRelations
+  timer: ReturnType<typeof setTimeout>
+}
+
 export function TaskList({ initialTasks, members, currentMemberId }: Props) {
   const [tasks, setTasks] = useState<TaskWithRelations[]>(initialTasks)
   const [statusFilter, setStatusFilter] = useState<string>('ALL')
@@ -88,6 +95,11 @@ export function TaskList({ initialTasks, members, currentMemberId }: Props) {
   const [formError, setFormError] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set(['DONE', 'CANCELLED']))
+  const [deletePending, setDeletePending] = useState<DeletePending | null>(null)
+
+  useEffect(() => {
+    return () => { if (deletePending) clearTimeout(deletePending.timer) }
+  }, [deletePending])
 
   const filtered = tasks.filter(t => {
     if (statusFilter !== 'ALL' && t.status !== statusFilter) return false
@@ -133,27 +145,35 @@ export function TaskList({ initialTasks, members, currentMemberId }: Props) {
     }
   }
 
-  // TODO [UX]: Task deletion is instant with no confirmation dialog and no undo.
-  // Users WILL accidentally delete tasks. This is especially harmful for tasks with
-  // detailed descriptions or recurring rules. Two fixes needed:
-  //
-  // 1. Add a confirmation dialog for task deletion ("Are you sure? This cannot be undone.")
-  //    OR use optimistic deletion with a brief undo toast ("Task deleted · Undo" for 5 seconds)
-  //    The undo toast is a better UX than a blocking confirmation — see Gmail's email delete pattern.
-  //
-  // 2. Consider "soft delete" instead of hard delete — add `deletedAt` field to Task,
-  //    filter it out of queries, and allow recovery from a "Recently deleted" section in Settings.
-  //    This prevents permanent data loss from accidental clicks.
-  //
-  // Also: the silent `catch {}` means if the API call fails, the task disappears from the UI
-  // but still exists in the DB — the state is now inconsistent. Always revert on failure.
   async function deleteTask(id: string) {
-    setTasks(prev => prev.filter(t => t.id !== id))
-    try {
-      await fetch(`/api/tasks/${id}`, { method: 'DELETE' })
-    } catch {
-      // silent
+    const task = tasks.find(t => t.id === id)
+    if (!task) return
+
+    if (deletePending) {
+      clearTimeout(deletePending.timer)
+      fetch(`/api/tasks/${deletePending.id}`, { method: 'DELETE' }).catch(() => {})
     }
+
+    setTasks(prev => prev.filter(t => t.id !== id))
+
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/tasks/${id}`, { method: 'DELETE' })
+        if (!res.ok) setTasks(prev => [task, ...prev])
+      } catch {
+        setTasks(prev => [task, ...prev])
+      }
+      setDeletePending(null)
+    }, 4000)
+
+    setDeletePending({ id, title: task.title, task, timer })
+  }
+
+  function undoDelete() {
+    if (!deletePending) return
+    clearTimeout(deletePending.timer)
+    setTasks(prev => [deletePending.task, ...prev])
+    setDeletePending(null)
   }
 
   async function addTask() {
@@ -194,7 +214,21 @@ export function TaskList({ initialTasks, members, currentMemberId }: Props) {
   const STATUS_ORDER = ['TODO', 'IN_PROGRESS', 'DONE', 'CANCELLED']
 
   return (
-    <div className="p-6 max-w-4xl mx-auto space-y-6">
+    <div className="p-6 max-w-4xl mx-auto space-y-6 relative">
+      {/* Undo toast */}
+      {deletePending && (
+        <div className="fixed bottom-20 md:bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 bg-gray-900 text-white px-4 py-3 rounded-2xl shadow-xl animate-fade-in-up">
+          <span className="text-sm">Deleted <span className="font-medium">{deletePending.title}</span></span>
+          <span className="text-gray-500">·</span>
+          <button
+            onClick={undoDelete}
+            className="text-sm font-semibold text-indigo-400 hover:text-indigo-300 flex items-center gap-1.5 transition-colors"
+          >
+            <RotateCcw size={13} /> Undo
+          </button>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
