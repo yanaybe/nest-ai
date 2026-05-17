@@ -92,14 +92,15 @@ export function createTools(householdId: string, memberId: string) {
         const items = await db.groceryItem.findMany({
           where: { householdId, checked: false },
         })
-        const toUpdate = items.filter((i) =>
-          itemNames.some((n) => i.name.toLowerCase().includes(n.toLowerCase()))
-        )
-        // TODO [AI]: Fuzzy matching via .includes() can cause false positives — "milk" matches
-        // "buttermilk" and "almond milk" simultaneously. Use a proper fuzzy match (Levenshtein distance
-        // or a similarity threshold) and return ambiguous matches to the user for confirmation
-        // rather than silently checking off the wrong item. Wrongly marking bought items as done
-        // is a trust-destroying failure mode.
+        const toUpdate = items.filter((i) => {
+          const name = i.name.toLowerCase()
+          return itemNames.some((n) => {
+            const q = n.toLowerCase()
+            if (name === q) return true
+            if (q.length > 4 && name.includes(q)) return true
+            return false
+          })
+        })
         await db.groceryItem.updateMany({
           where: { id: { in: toUpdate.map((i) => i.id) } },
           data: { checked: true, checkedBy: memberId, checkedAt: new Date(), lastBoughtAt: new Date() },
@@ -350,6 +351,89 @@ export function createTools(householdId: string, memberId: string) {
           data: { householdId, memberId: forMemberId, title, body, remindAt: new Date(remindAt) },
         })
         return { reminder: { id: reminder.id, title: reminder.title, remindAt: reminder.remindAt } }
+      },
+    }),
+
+    // ── TASK UPDATES ─────────────────────────────────────────────────────────
+    updateTask: tool({
+      description: 'Update an existing task — change its status, priority, due date, or assignee',
+      parameters: z.object({
+        taskTitle: z.string().describe('Title or partial title of the task to update'),
+        updates: z.object({
+          status: z.enum(['TODO', 'IN_PROGRESS', 'DONE', 'CANCELLED']).optional(),
+          priority: z.enum(['LOW', 'MEDIUM', 'HIGH', 'URGENT']).optional(),
+          dueDate: z.string().optional().describe('ISO date string or null to clear'),
+          assigneeName: z.string().optional(),
+        }),
+      }),
+      execute: async ({ taskTitle, updates }) => {
+        const tasks = await db.task.findMany({
+          where: { householdId, title: { contains: taskTitle, mode: 'insensitive' }, status: { not: 'CANCELLED' } },
+          take: 5,
+        })
+        if (tasks.length === 0) return { error: `No task found matching "${taskTitle}"` }
+        const task = tasks[0]
+
+        let assigneeId: string | undefined
+        if (updates.assigneeName) {
+          const m = await db.householdMember.findFirst({
+            where: { householdId, displayName: { contains: updates.assigneeName, mode: 'insensitive' } },
+          })
+          assigneeId = m?.id
+        }
+
+        const updated = await db.task.update({
+          where: { id: task.id },
+          data: {
+            ...(updates.status && { status: updates.status as TaskStatus }),
+            ...(updates.priority && { priority: updates.priority as Priority }),
+            ...(updates.dueDate !== undefined && { dueDate: updates.dueDate ? new Date(updates.dueDate) : null }),
+            ...(assigneeId && { assigneeId }),
+            ...(updates.status === 'DONE' && { completedAt: new Date() }),
+          },
+          include: { assignee: true },
+        })
+        return { updated: { id: updated.id, title: updated.title, status: updated.status, assignee: updated.assignee?.displayName } }
+      },
+    }),
+
+    // ── GROCERY DELETION ──────────────────────────────────────────────────────
+    deleteGroceryItem: tool({
+      description: 'Remove one or more items from the grocery list',
+      parameters: z.object({
+        itemNames: z.array(z.string()).describe('Names of items to remove'),
+      }),
+      execute: async ({ itemNames }) => {
+        const items = await db.groceryItem.findMany({ where: { householdId } })
+        const toDelete = items.filter(i =>
+          itemNames.some(n => i.name.toLowerCase() === n.toLowerCase() ||
+            (i.name.toLowerCase().includes(n.toLowerCase()) && n.length > 3))
+        )
+        if (toDelete.length === 0) return { error: 'No matching items found' }
+        await db.groceryItem.deleteMany({ where: { id: { in: toDelete.map(i => i.id) } } })
+        return { deleted: toDelete.map(i => i.name) }
+      },
+    }),
+
+    // ── BILLS ─────────────────────────────────────────────────────────────────
+    getBillsSummary: tool({
+      description: 'Get a summary of household bills — upcoming, overdue, and monthly total',
+      parameters: z.object({}),
+      execute: async () => {
+        const bills = await db.bill.findMany({
+          where: { householdId },
+          orderBy: { dueDay: 'asc' },
+        })
+        const today = new Date().getDate()
+        const upcoming = bills.filter(b => b.dueDay >= today && b.dueDay <= today + 7)
+        const overdue = bills.filter(b => b.dueDay < today && !b.isAutoPay)
+        const monthlyTotal = bills.reduce((sum, b) => sum + b.amount, 0)
+        return {
+          bills: bills.map(b => ({ name: b.name, amount: b.amount, dueDay: b.dueDay, isAutoPay: b.isAutoPay })),
+          upcoming: upcoming.length,
+          overdue: overdue.length,
+          monthlyTotal,
+        }
       },
     }),
   }

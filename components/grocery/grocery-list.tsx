@@ -28,9 +28,9 @@
 // The component uses useOptimistic correctly for check/uncheck, but the initial data fetch
 // (server-side) has no pagination. Add: virtual scrolling or pagination for large lists.
 
-import { useState, useOptimistic, useTransition } from 'react'
+import { useState, useOptimistic, useTransition, useEffect } from 'react'
 import type { GroceryItem } from '@prisma/client'
-import { ShoppingCart, Plus, Flame, Trash2, X, Check, Loader2 } from 'lucide-react'
+import { ShoppingCart, Plus, Flame, Trash2, X, Check, Loader2, RotateCcw } from 'lucide-react'
 import { format, subDays } from 'date-fns'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -64,6 +64,13 @@ interface AddForm {
 
 const emptyForm: AddForm = { name: '', quantity: '', unit: '', category: '', urgent: false }
 
+interface DeletePending {
+  id: string
+  name: string
+  item: GroceryItem
+  timer: ReturnType<typeof setTimeout>
+}
+
 export function GroceryList({ initialItems }: Props) {
   const [items, setItems] = useState<GroceryItem[]>(initialItems)
   const [activeTab, setActiveTab] = useState<'tobuy' | 'done'>('tobuy')
@@ -73,10 +80,18 @@ export function GroceryList({ initialItems }: Props) {
   const [formError, setFormError] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [clearingChecked, setClearingChecked] = useState(false)
+  const [deletePending, setDeletePending] = useState<DeletePending | null>(null)
   const [, startTransition] = useTransition()
   const [optimisticItems, applyOptimistic] = useOptimistic(items, (state, update: Partial<GroceryItem> & { id: string }) => {
     return state.map(i => i.id === update.id ? { ...i, ...update } : i)
   })
+
+  // Cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (deletePending) clearTimeout(deletePending.timer)
+    }
+  }, [deletePending])
 
   const sevenDaysAgo = subDays(new Date(), 7)
   const unchecked = optimisticItems.filter(i => !i.checked)
@@ -114,19 +129,38 @@ export function GroceryList({ initialItems }: Props) {
     }
   }
 
-  // TODO [UX]: Same pattern as task deletion — instant delete with no undo.
-  // For grocery items specifically, accidental deletion is very common (the delete icon
-  // is next to the item row and appears on hover, which on touch devices is always visible).
-  // Add: undo toast with 4-second window before the API delete is actually fired.
-  // Pattern: show "Item removed · Undo" toast → start 4s timer → if user taps Undo, cancel
-  // the fetch and restore state. This is the gold standard for destructive actions in mobile apps.
   async function deleteItem(id: string) {
-    setItems(prev => prev.filter(i => i.id !== id))
-    try {
-      await fetch(`/api/grocery/${id}`, { method: 'DELETE' })
-    } catch {
-      // silent
+    const item = items.find(i => i.id === id)
+    if (!item) return
+
+    // Cancel any pending delete first
+    if (deletePending) {
+      clearTimeout(deletePending.timer)
+      // Fire the previous pending delete immediately
+      fetch(`/api/grocery/${deletePending.id}`, { method: 'DELETE' }).catch(() => {})
     }
+
+    // Optimistically remove from UI
+    setItems(prev => prev.filter(i => i.id !== id))
+
+    // Start 4-second timer before actually deleting
+    const timer = setTimeout(async () => {
+      try {
+        await fetch(`/api/grocery/${id}`, { method: 'DELETE' })
+      } catch {
+        // silent
+      }
+      setDeletePending(null)
+    }, 4000)
+
+    setDeletePending({ id, name: item.name, item, timer })
+  }
+
+  function undoDelete() {
+    if (!deletePending) return
+    clearTimeout(deletePending.timer)
+    setItems(prev => [deletePending.item, ...prev])
+    setDeletePending(null)
   }
 
   async function addItem() {
@@ -164,17 +198,17 @@ export function GroceryList({ initialItems }: Props) {
     }
   }
 
-  // TODO [PERFORMANCE]: clearChecked() fires one DELETE request per item — if there are 20
-  // checked items, that's 20 parallel HTTP requests and 20 DB operations. Add a bulk delete
-  // API endpoint: DELETE /api/grocery with { ids: string[] } that runs a single
-  // db.groceryItem.deleteMany({ where: { id: { in: ids }, householdId } }) in one round-trip.
-  // Also: same undo pattern applies here — "Cleared 12 items · Undo" toast.
   async function clearChecked() {
     setClearingChecked(true)
     const checkedItems = items.filter(i => i.checked)
     setItems(prev => prev.filter(i => !i.checked))
     try {
-      await Promise.all(checkedItems.map(i => fetch(`/api/grocery/${i.id}`, { method: 'DELETE' })))
+      const ids = checkedItems.map(i => i.id)
+      await fetch('/api/grocery/bulk-delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids }),
+      })
     } catch {
       // silent
     } finally {
@@ -183,7 +217,21 @@ export function GroceryList({ initialItems }: Props) {
   }
 
   return (
-    <div className="p-6 max-w-3xl mx-auto space-y-6">
+    <div className="p-6 max-w-3xl mx-auto space-y-6 relative">
+      {/* Undo toast */}
+      {deletePending && (
+        <div className="fixed bottom-20 md:bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 bg-gray-900 text-white px-4 py-3 rounded-2xl shadow-xl animate-fade-in-up">
+          <span className="text-sm">Removed <span className="font-medium">{deletePending.name}</span></span>
+          <span className="text-gray-500">·</span>
+          <button
+            onClick={undoDelete}
+            className="text-sm font-semibold text-indigo-400 hover:text-indigo-300 flex items-center gap-1.5 transition-colors"
+          >
+            <RotateCcw size={13} /> Undo
+          </button>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">

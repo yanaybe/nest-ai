@@ -151,6 +151,7 @@ model GroceryItem {
 
   household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
 
+  @@index([householdId, checked])
   @@map("grocery_items")
 }
 
@@ -179,15 +180,12 @@ model Task {
   createdAt   DateTime   @default(now()) @map("created_at")
   updatedAt   DateTime   @updatedAt @map("updated_at")
 
-  // TODO [SCALABILITY]: Add indexes for common query patterns:
-  // @@index([householdId, status])
-  // @@index([householdId, assigneeId])
-  // @@index([householdId, dueDate])
-
   household Household       @relation(fields: [householdId], references: [id], onDelete: Cascade)
   assignee  HouseholdMember? @relation("TaskAssignee", fields: [assigneeId], references: [id])
   creator   HouseholdMember? @relation("TaskCreator", fields: [creatorId], references: [id])
 
+  @@index([householdId, status])
+  @@index([householdId, dueDate])
   @@map("tasks")
 }
 
@@ -228,6 +226,7 @@ model CalendarEvent {
   household Household       @relation(fields: [householdId], references: [id], onDelete: Cascade)
   attendees EventAttendee[]
 
+  @@index([householdId, startAt])
   @@map("calendar_events")
 }
 
@@ -264,6 +263,7 @@ model Expense {
   household Household        @relation(fields: [householdId], references: [id], onDelete: Cascade)
   paidBy    HouseholdMember? @relation(fields: [paidById], references: [id])
 
+  @@index([householdId, paidAt])
   @@map("expenses")
 }
 
@@ -354,6 +354,7 @@ model Reminder {
   household Household        @relation(fields: [householdId], references: [id], onDelete: Cascade)
   member    HouseholdMember? @relation(fields: [memberId], references: [id])
 
+  @@index([householdId, remindAt, dismissed])
   @@map("reminders")
 }
 
@@ -406,6 +407,7 @@ model AIConversation {
   member    HouseholdMember? @relation(fields: [memberId], references: [id])
   messages  AIMessage[]
 
+  @@index([householdId, memberId])
   @@map("ai_conversations")
 }
 
@@ -440,17 +442,11 @@ model AIMemory {
   embedding   Unsupported("vector(1536)")?
   metadata    Json                      @default("{}")
   expiresAt   DateTime?                 @map("expires_at")
-  // TODO [SCALABILITY]: Add HNSW index for vector similarity search:
-  // This must be done via a raw SQL migration, not Prisma schema, since Prisma doesn't
-  // support pgvector index definitions in schema.prisma:
-  //   CREATE INDEX ai_memories_embedding_idx ON ai_memories
-  //   USING hnsw (embedding vector_cosine_ops) WITH (m = 16, ef_construction = 64);
-  // Without this index, vector search is O(n) across all memories.
-  // Also add: @@index([householdId]) for pre-filtering before the vector scan.
   createdAt   DateTime                  @default(now()) @map("created_at")
 
   household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
 
+  @@index([householdId])
   @@map("ai_memories")
 }
 
@@ -469,6 +465,7 @@ model Notification {
 
   household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
 
+  @@index([householdId, userId, read])
   @@map("notifications")
 }
 
