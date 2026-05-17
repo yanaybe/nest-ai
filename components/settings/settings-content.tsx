@@ -110,6 +110,53 @@ export function SettingsContent({ member, household, members }: Props) {
     expenses: false,
   })
 
+  // Member roles
+  const [memberRoles, setMemberRoles] = useState<Record<string, string>>(
+    Object.fromEntries(members.map(m => [m.id, m.role]))
+  )
+  const [roleUpdating, setRoleUpdating] = useState<string | null>(null)
+
+  // Leave household
+  const [leavingHousehold, setLeavingHousehold] = useState(false)
+  const [leaveError, setLeaveError] = useState('')
+
+  async function updateMemberRole(memberId: string, newRole: string) {
+    setRoleUpdating(memberId)
+    try {
+      const res = await fetch(`/api/settings/members/${memberId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: newRole }),
+      })
+      if (res.ok) {
+        setMemberRoles(prev => ({ ...prev, [memberId]: newRole }))
+      }
+    } catch {
+      // silent
+    } finally {
+      setRoleUpdating(null)
+    }
+  }
+
+  async function leaveHousehold() {
+    if (!confirm('Are you sure you want to leave this household? You will need a new invite code to rejoin.')) return
+    setLeavingHousehold(true)
+    setLeaveError('')
+    try {
+      const res = await fetch('/api/household/leave', { method: 'POST' })
+      if (res.ok) {
+        window.location.href = '/onboarding'
+      } else {
+        const data = await res.json()
+        setLeaveError(typeof data.error === 'string' ? data.error : 'Failed to leave household')
+      }
+    } catch {
+      setLeaveError('Something went wrong')
+    } finally {
+      setLeavingHousehold(false)
+    }
+  }
+
   async function copyInviteCode() {
     try {
       await navigator.clipboard.writeText(household.inviteCode)
@@ -293,7 +340,14 @@ export function SettingsContent({ member, household, members }: Props) {
                     <h2 className="font-semibold text-red-700">Danger zone</h2>
                   </div>
                   <p className="text-sm text-gray-500 mb-3">Once you leave, you will need a new invite code to rejoin.</p>
-                  <Button variant="outline" className="border-red-200 text-red-600 hover:bg-red-50">
+                  {leaveError && <p className="text-sm text-red-600 mb-3">{leaveError}</p>}
+                  <Button
+                    variant="outline"
+                    onClick={leaveHousehold}
+                    disabled={leavingHousehold}
+                    className="border-red-200 text-red-600 hover:bg-red-50"
+                  >
+                    {leavingHousehold ? <Loader2 size={14} className="animate-spin mr-2" /> : <LogOut size={14} className="mr-2" />}
                     Leave household
                   </Button>
                 </div>
@@ -369,28 +423,46 @@ export function SettingsContent({ member, household, members }: Props) {
                 <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full ml-auto">{members.length}</span>
               </div>
               <div className="space-y-2">
-                {members.map(m => (
-                  <div key={m.id} className="flex items-center gap-3 p-3 rounded-xl hover:bg-gray-50 transition-colors">
-                    <div
-                      className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm flex-shrink-0"
-                      style={{ backgroundColor: m.color }}
-                    >
-                      {m.displayName[0].toUpperCase()}
-                    </div>
-                    <div className="flex-1 min-w-0">
+                {members.map(m => {
+                  const canEditRole = ['OWNER', 'ADMIN'].includes(member.role) && m.id !== member.id && m.role !== 'OWNER'
+                  const currentRole = memberRoles[m.id] ?? m.role
+                  return (
+                    <div key={m.id} className="flex items-center gap-3 p-3 rounded-xl hover:bg-gray-50 transition-colors">
+                      <div
+                        className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm flex-shrink-0"
+                        style={{ backgroundColor: m.color }}
+                      >
+                        {m.displayName[0].toUpperCase()}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm font-medium text-gray-900">{m.displayName}</p>
+                          {m.id === member.id && <span className="text-xs text-gray-400">(you)</span>}
+                        </div>
+                      </div>
                       <div className="flex items-center gap-2">
-                        <p className="text-sm font-medium text-gray-900">{m.displayName}</p>
-                        {m.id === member.id && <span className="text-xs text-gray-400">(you)</span>}
+                        {canEditRole ? (
+                          <select
+                            value={currentRole}
+                            onChange={(e) => updateMemberRole(m.id, e.target.value)}
+                            disabled={roleUpdating === m.id}
+                            className="text-xs border border-gray-200 rounded-lg px-2 py-1 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                          >
+                            <option value="ADMIN">Admin</option>
+                            <option value="MEMBER">Member</option>
+                            <option value="CHILD">Child</option>
+                          </select>
+                        ) : (
+                          <span className={cn('text-xs px-2 py-0.5 rounded-full font-medium', ROLE_COLORS[currentRole])}>
+                            {ROLE_LABELS[currentRole]}
+                          </span>
+                        )}
+                        {m.role === 'OWNER' && <Shield size={14} className="text-indigo-400" />}
+                        {roleUpdating === m.id && <Loader2 size={14} className="animate-spin text-indigo-400" />}
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <span className={cn('text-xs px-2 py-0.5 rounded-full font-medium', ROLE_COLORS[m.role])}>
-                        {ROLE_LABELS[m.role]}
-                      </span>
-                      {m.role === 'OWNER' && <Shield size={14} className="text-indigo-400" />}
-                    </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
               <div className="mt-4 p-4 bg-indigo-50 rounded-xl">
                 <p className="text-sm text-indigo-700 font-medium mb-1">Invite someone</p>
