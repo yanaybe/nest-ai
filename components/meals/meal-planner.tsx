@@ -134,36 +134,11 @@ export function MealPlanner({ currentPlan, householdId }: Props) {
   async function generateWithAI() {
     setGenerating(true)
     try {
-      const res = await fetch('/api/ai/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          messages: [{
-            role: 'user',
-            content: 'Generate a balanced weekly meal plan for my family. For each of the 7 days (Monday-Sunday) give me breakfast, lunch, and dinner. Return ONLY a JSON object with this exact structure: { "Monday": { "breakfast": "...", "lunch": "...", "dinner": "..." }, "Tuesday": ... }. No additional text, just the JSON.'
-          }]
-        }),
-      })
+      const res = await fetch('/api/ai/meals', { method: 'POST' })
       if (res.ok) {
-        const text = await res.text()
-        // Extract JSON from streaming response
-        const jsonMatch = text.match(/\{[\s\S]*\}/)
-        if (jsonMatch) {
-          try {
-            const generated = JSON.parse(jsonMatch[0])
-            setMeals(generated)
-          } catch {
-            // Fallback: set some template meals
-            const template: MealsJson = {}
-            DAYS.forEach((day, i) => {
-              template[day] = {
-                breakfast: ['Scrambled eggs & toast', 'Oatmeal with berries', 'Greek yogurt & granola', 'Pancakes', 'Avocado toast', 'Smoothie bowl', 'French toast'][i],
-                lunch: ['Turkey sandwich', 'Caesar salad', 'Soup & bread', 'Tuna wrap', 'Leftovers', 'BLT', 'Quesadilla'][i],
-                dinner: ['Pasta bolognese', 'Grilled chicken', 'Stir-fry', 'Tacos', 'Pizza', 'Salmon', 'Roast chicken'][i],
-              }
-            })
-            setMeals(template)
-          }
+        const { meals: generated } = await res.json()
+        if (generated && typeof generated === 'object') {
+          setMeals(generated as MealsJson)
         }
       }
     } finally {

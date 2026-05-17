@@ -62,7 +62,7 @@
 import Link from 'next/link'
 import {
   Home, MessageSquare, ShoppingCart, CheckSquare, Calendar,
-  DollarSign, Sparkles, ArrowRight, Star, Shield, Zap,
+  DollarSign, Sparkles, ArrowRight, Shield, Zap,
   Bell, Users, ChefHat, Receipt, Brain
 } from 'lucide-react'
 
@@ -125,32 +125,27 @@ const features = [
   },
 ]
 
-// TODO [CRITICAL]:
-// These testimonials are entirely fabricated. Replace with real user quotes before launch.
-// See the top-of-file TODO for full context on why this is a critical issue.
-// Until real quotes exist, either remove this section or replace with a "What you'll be able to do"
-// benefits list, or a "Join X beta users" invite-focused section.
-const testimonials = [
+const useCases = [
   {
-    name: 'Sarah M.',
-    role: 'Mom of 3',
-    body: "Nest has completely changed how we manage our household. I just say 'add milk to the list' and it's done. My husband and I finally feel coordinated.",
-    avatar: 'S',
-    color: '#6366f1',
+    icon: ShoppingCart,
+    color: 'text-emerald-600',
+    bg: 'bg-emerald-50',
+    title: 'Grocery runs without the back-and-forth',
+    desc: 'Everyone on the household sees the same live list. Add items by voice or text, check them off in-store, and clear the list in one tap when done.',
   },
   {
-    name: 'David K.',
-    role: 'Dad & small business owner',
-    body: "I was skeptical, but now I use it every day. The grocery + budget tracking combo alone saves us at least $200/month by flagging overspending.",
-    avatar: 'D',
-    color: '#10b981',
+    icon: CheckSquare,
+    color: 'text-indigo-600',
+    bg: 'bg-indigo-50',
+    title: 'Chores and tasks, actually shared',
+    desc: 'Assign tasks to specific family members with due dates and priorities. No more "I forgot" — everyone can see what\'s open and what\'s done.',
   },
   {
-    name: 'Priya L.',
-    role: 'Working parent',
-    body: "The meal planning feature is a game changer. Nest suggests meals, builds the grocery list, and even helps with the budget. It just thinks ahead for us.",
-    avatar: 'P',
-    color: '#f59e0b',
+    icon: DollarSign,
+    color: 'text-amber-600',
+    bg: 'bg-amber-50',
+    title: 'Household budget in one place',
+    desc: 'Log expenses by category, track monthly spending, and see exactly where the money went. No spreadsheets, no guessing.',
   },
 ]
 
@@ -334,19 +329,14 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ─── Social Proof Bar ───────────────────────────────────── */}
+      {/* ─── Trust Bar ───────────────────────────────────────────── */}
       <section className="border-y border-gray-100 bg-gray-50 py-6 px-4">
         <div className="max-w-4xl mx-auto flex flex-col sm:flex-row items-center justify-center gap-6 sm:gap-12 text-center">
-          {/* TODO [CRITICAL]:
-            "4.9/5 rating" and "2,000+ families" are fabricated numbers. Replace with accurate
-            metrics pulled from your actual database/analytics. If you have no data yet, replace
-            with honest feature highlights like "End-to-end encrypted" and "Setup in 2 minutes".
-            Remove all quantified claims until you have real numbers to back them up. */}
           {[
-            { icon: Star, text: '4.9 / 5 rating', sub: 'from early adopters' },
-            { icon: Users, text: '2,000+ families', sub: 'actively using Nest' },
-            { icon: Shield, text: 'Privacy first', sub: 'your data stays yours' },
-            { icon: Zap, text: 'Instant setup', sub: 'ready in under 2 minutes' },
+            { icon: Shield, text: 'Privacy first', sub: 'your data is never sold' },
+            { icon: Zap, text: 'Setup in 2 minutes', sub: 'no configuration needed' },
+            { icon: Users, text: 'Built for households', sub: 'everyone in sync' },
+            { icon: Brain, text: 'Powered by GPT-4o', sub: 'best-in-class AI' },
           ].map((item) => (
             <div key={item.text} className="flex items-center gap-2.5">
               <div className="w-8 h-8 bg-white border border-gray-200 rounded-xl flex items-center justify-center flex-shrink-0">
@@ -456,36 +446,23 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ─── Testimonials ───────────────────────────────────────── */}
+      {/* ─── Use Cases ──────────────────────────────────────────── */}
       <section className="py-24 px-4">
         <div className="max-w-5xl mx-auto">
           <div className="text-center mb-14">
-            <p className="text-indigo-600 font-semibold text-sm uppercase tracking-wider mb-3">Real families. Real results.</p>
+            <p className="text-indigo-600 font-semibold text-sm uppercase tracking-wider mb-3">Real scenarios</p>
             <h2 className="text-4xl font-bold text-gray-900 tracking-tight">
-              Families love Nest
+              Built for how families actually live
             </h2>
           </div>
           <div className="grid md:grid-cols-3 gap-6">
-            {testimonials.map((t) => (
-              <div key={t.name} className="bg-white border border-gray-100 rounded-2xl p-6 card-hover">
-                <div className="flex items-center gap-1 mb-4">
-                  {[...Array(5)].map((_, i) => (
-                    <Star key={i} size={14} className="text-amber-400 fill-amber-400" />
-                  ))}
+            {useCases.map((u) => (
+              <div key={u.title} className="bg-white border border-gray-100 rounded-2xl p-6 card-hover">
+                <div className={`w-10 h-10 ${u.bg} rounded-xl flex items-center justify-center mb-4`}>
+                  <u.icon size={20} className={u.color} />
                 </div>
-                <p className="text-gray-700 text-sm leading-relaxed mb-5">&ldquo;{t.body}&rdquo;</p>
-                <div className="flex items-center gap-3">
-                  <div
-                    className="w-9 h-9 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0"
-                    style={{ backgroundColor: t.color }}
-                  >
-                    {t.avatar}
-                  </div>
-                  <div>
-                    <p className="text-sm font-semibold text-gray-900">{t.name}</p>
-                    <p className="text-xs text-gray-500">{t.role}</p>
-                  </div>
-                </div>
+                <h3 className="font-semibold text-gray-900 mb-2">{u.title}</h3>
+                <p className="text-sm text-gray-500 leading-relaxed">{u.desc}</p>
               </div>
             ))}
           </div>
@@ -501,11 +478,8 @@ export default function LandingPage() {
           <h2 className="text-4xl sm:text-5xl font-bold text-gray-900 tracking-tight mb-5">
             Ready to simplify<br />family life?
           </h2>
-          {/* TODO [CRITICAL]: "Join thousands of families" is fabricated. Replace with
-            honest copy, e.g. "Be part of our growing community of families" or wait until
-            you have thousands of real users. */}
           <p className="text-lg text-gray-500 mb-8 max-w-lg mx-auto">
-            Join thousands of families who use Nest to stay organized, reduce stress, and spend less time on logistics.
+            Stop juggling spreadsheets, group chats, and reminder apps. Nest brings your whole household into one place.
           </p>
           <Link
             href="/register"
@@ -528,14 +502,9 @@ export default function LandingPage() {
             <span className="font-bold text-gray-800 text-sm">Nest</span>
           </div>
           <p className="text-xs text-gray-400">© 2026 Nest. The AI operating system for family life.</p>
-          {/* TODO [SECURITY]: Privacy and Terms links go to "#" which means they don't exist.
-            These are legally required documents if you're collecting user data (which you are —
-            emails, household data, expenses). You need actual policies before any public launch.
-            At minimum, generate basic policies via Termly or a lawyer, then link to /privacy and /terms.
-            Failure to have these can expose you to GDPR/CCPA liability. */}
           <div className="flex items-center gap-4 text-xs text-gray-400">
-            <a href="#" className="hover:text-gray-600 transition-colors">Privacy</a>
-            <a href="#" className="hover:text-gray-600 transition-colors">Terms</a>
+            <Link href="/privacy" className="hover:text-gray-600 transition-colors">Privacy</Link>
+            <Link href="/terms" className="hover:text-gray-600 transition-colors">Terms</Link>
           </div>
         </div>
       </footer>

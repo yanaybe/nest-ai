@@ -25,7 +25,6 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { db } from '@/lib/db'
 import { z } from 'zod'
-import { revalidatePath } from 'next/cache'
 
 const createSchema = z.object({
   title: z.string().min(1).max(300),
@@ -93,7 +92,6 @@ export async function POST(req: NextRequest) {
       include: { assignee: true, creator: true },
     })
 
-    revalidatePath('/tasks')
     return NextResponse.json({ task }, { status: 201 })
   } catch (err) {
     if (err instanceof z.ZodError) return NextResponse.json({ error: err.issues }, { status: 400 })

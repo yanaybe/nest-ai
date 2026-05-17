@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { db } from '@/lib/db'
 import { z } from 'zod'
-import { revalidatePath } from 'next/cache'
 
 const patchSchema = z.object({
   title: z.string().min(1).max(300).optional(),
@@ -42,7 +41,6 @@ export async function PATCH(
       include: { assignee: true, creator: true },
     })
 
-    revalidatePath('/tasks')
     return NextResponse.json({ task })
   } catch (err) {
     if (err instanceof z.ZodError) return NextResponse.json({ error: err.issues }, { status: 400 })
@@ -68,7 +66,6 @@ export async function DELETE(
       where: { id, householdId: member.householdId },
     })
 
-    revalidatePath('/tasks')
     return NextResponse.json({ success: true })
   } catch (err) {
     console.error('DELETE task error:', err)
