@@ -32,13 +32,14 @@ import type { AIConversation, HouseholdMember } from '@prisma/client'
 import {
   Send, Loader2, Sparkles, ShoppingCart, CheckSquare,
   Calendar, DollarSign, Plus, Bell, ChefHat, Receipt,
-  RefreshCw, ThumbsUp, Copy, Check
+  RefreshCw, ThumbsUp, ThumbsDown, Copy, Check
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { format } from 'date-fns'
 import { cn } from '@/lib/utils'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { useRouter } from 'next/navigation'
 
 interface Props {
   member: HouseholdMember
@@ -125,8 +126,11 @@ export function ChatInterface({ member, initialQuery, recentConversations }: Pro
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const [conversationId, setConversationId] = useState<string | undefined>()
+  const [loadingConv, setLoadingConv] = useState<string | null>(null)
+  const [feedback, setFeedback] = useState<Record<string, 'positive' | 'negative'>>({})
+  const router = useRouter()
 
-  const { messages, input, handleInputChange, handleSubmit, isLoading, setInput, append, reload, stop } = useChat({
+  const { messages, input, handleInputChange, handleSubmit, isLoading, setInput, append, reload, stop, setMessages } = useChat({
     api: '/api/ai/chat',
     body: { conversationId },
     onResponse: (response) => {
@@ -134,6 +138,42 @@ export function ChatInterface({ member, initialQuery, recentConversations }: Pro
       if (convId && !conversationId) setConversationId(convId)
     },
   })
+
+  async function loadConversation(convId: string) {
+    if (loadingConv === convId) return
+    setLoadingConv(convId)
+    try {
+      const res = await fetch(`/api/ai/conversations/${convId}/messages`)
+      if (!res.ok) return
+      const { messages: dbMessages } = await res.json()
+      const formatted = dbMessages
+        .filter((m: { role: string }) => m.role === 'USER' || m.role === 'ASSISTANT')
+        .map((m: { id: string; role: string; content: string }) => ({
+          id: m.id,
+          role: m.role === 'USER' ? 'user' as const : 'assistant' as const,
+          content: m.content,
+        }))
+      setMessages(formatted)
+      setConversationId(convId)
+    } catch {
+      // silent
+    } finally {
+      setLoadingConv(null)
+    }
+  }
+
+  async function submitFeedback(messageId: string, type: 'positive' | 'negative') {
+    setFeedback(prev => ({ ...prev, [messageId]: type }))
+    try {
+      await fetch('/api/ai/feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messageId, type }),
+      })
+    } catch {
+      // silent
+    }
+  }
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -172,16 +212,11 @@ export function ChatInterface({ member, initialQuery, recentConversations }: Pro
     <div className="flex h-full">
       {/* ─── Sidebar: conversations ─────────────────────────────── */}
       <div className="hidden lg:flex flex-col w-60 border-r border-gray-100 bg-white">
-        {/* TODO [UX]: "New chat" button calls window.location.reload() which is a full page
-          reload — all React state is destroyed, network requests are re-fired, and the user
-          sees a flash. This should use Next.js router.push('/chat') with the conversation
-          state reset via a query param or URL change, not a full page reload.
-          Also: if the user already has an active conversation, warn them before losing it. */}
         <div className="px-4 pt-5 pb-3 border-b border-gray-50">
           <div className="flex items-center justify-between">
             <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Recent chats</h3>
             <button
-              onClick={() => { setConversationId(undefined); window.location.reload() }}
+              onClick={() => { setConversationId(undefined); setMessages([]); router.push('/chat') }}
               className="w-6 h-6 flex items-center justify-center rounded-lg hover:bg-gray-100 text-gray-400 transition-colors press-effect"
               title="New chat"
             >
@@ -194,34 +229,30 @@ export function ChatInterface({ member, initialQuery, recentConversations }: Pro
             <p className="text-xs text-gray-400 text-center py-6 px-3">No previous conversations</p>
           ) : (
             recentConversations.map((conv) => (
-              {/* TODO [HIGH PRIORITY]:
-                Clicking a previous conversation does nothing — the onClick is a stub.
-                This is a broken feature. Users see their conversation history in the sidebar
-                but can't load it. When they click, nothing happens.
-
-                Implementation needed:
-                1. Load the conversation's messages from the DB: GET /api/ai/conversations/:id/messages
-                2. Populate the useChat `messages` state with the loaded history
-                3. Set `conversationId` to the selected conversation's ID so new messages append correctly
-                4. Show a loading state while the history is fetched
-                5. Handle the edge case where the conversation has tool invocations (message format differs)
-
-                This is a core retention feature — users can't reference past conversations
-                without it. Fix this before any user testing. */}
               <button
                 key={conv.id}
-                onClick={() => { /* TODO: load conversation history */ }}
+                onClick={() => loadConversation(conv.id)}
+                disabled={loadingConv === conv.id}
                 className={cn(
                   'w-full text-left px-3 py-2.5 rounded-xl hover:bg-gray-50 transition-colors',
                   conv.id === conversationId && 'bg-indigo-50'
                 )}
               >
-                <p className={cn('text-xs font-medium truncate', conv.id === conversationId ? 'text-indigo-700' : 'text-gray-800')}>
-                  {conv.title || 'New conversation'}
-                </p>
-                <p className="text-[11px] text-gray-400 mt-0.5">
-                  {format(new Date(conv.updatedAt), 'MMM d')} · {conv._count.messages} messages
-                </p>
+                {loadingConv === conv.id ? (
+                  <div className="flex items-center gap-2">
+                    <Loader2 size={11} className="animate-spin text-indigo-400" />
+                    <p className="text-xs text-gray-400">Loading…</p>
+                  </div>
+                ) : (
+                  <>
+                    <p className={cn('text-xs font-medium truncate', conv.id === conversationId ? 'text-indigo-700' : 'text-gray-800')}>
+                      {conv.title || 'New conversation'}
+                    </p>
+                    <p className="text-[11px] text-gray-400 mt-0.5">
+                      {format(new Date(conv.updatedAt), 'MMM d')} · {conv._count.messages} messages
+                    </p>
+                  </>
+                )}
               </button>
             ))
           )}
@@ -318,30 +349,6 @@ export function ChatInterface({ member, initialQuery, recentConversations }: Pro
                         )}
                       </div>
 
-                      {/* TODO [AI]: The ThumbsUp button does nothing — there is no feedback
-                        collection system. This is a critical missing feature for AI quality
-                        improvement. User feedback is how you train better responses over time.
-
-                        Implementation needed:
-                        1. POST /api/ai/feedback with { messageId, type: 'positive' | 'negative', comment? }
-                        2. Store feedback in a new Feedback table in Prisma schema
-                        3. Add ThumbsDown button alongside ThumbsUp
-                        4. On negative feedback: show a follow-up "What went wrong?" mini-form
-                           (Options: "Wrong information", "Not helpful", "Took wrong action", "Other")
-                        5. Use feedback data to:
-                           a. Fine-tune prompts for common failure modes
-                           b. Identify which tool calls cause frustration
-                           c. Build a quality dashboard for internal monitoring
-
-                        Also: the message actions (copy, regenerate, thumbs up) only appear on the
-                        LAST assistant message. They should appear on hover for ALL assistant messages
-                        so users can copy or rate any response, not just the latest. */}
-
-                      {/* TODO [UX]: The message action buttons (copy, regenerate, thumbs) are
-                        invisible until hover — `opacity-0 group-hover:opacity-100`. On mobile,
-                        there is no hover state. These actions are completely inaccessible on touch
-                        devices. Fix: show a "..." tap target on mobile that reveals the action menu. */}
-
                       {/* Assistant message actions */}
                       {!isUser && isLast && (
                         <div className="flex items-center gap-1 mt-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -352,8 +359,27 @@ export function ChatInterface({ member, initialQuery, recentConversations }: Pro
                           >
                             <RefreshCw size={12} />
                           </button>
-                          <button className="p-1 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors">
-                            <ThumbsUp size={12} />
+                          <button
+                            onClick={() => submitFeedback(message.id, 'positive')}
+                            className={cn(
+                              'p-1 rounded-lg hover:bg-gray-100 transition-colors',
+                              feedback[message.id] === 'positive'
+                                ? 'text-indigo-600'
+                                : 'text-gray-400 hover:text-gray-600'
+                            )}
+                          >
+                            <ThumbsUp size={12} className={feedback[message.id] === 'positive' ? 'fill-indigo-600' : ''} />
+                          </button>
+                          <button
+                            onClick={() => submitFeedback(message.id, 'negative')}
+                            className={cn(
+                              'p-1 rounded-lg hover:bg-gray-100 transition-colors',
+                              feedback[message.id] === 'negative'
+                                ? 'text-red-500'
+                                : 'text-gray-400 hover:text-gray-600'
+                            )}
+                          >
+                            <ThumbsDown size={12} className={feedback[message.id] === 'negative' ? 'fill-red-500' : ''} />
                           </button>
                         </div>
                       )}
