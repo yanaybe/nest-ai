@@ -100,7 +100,9 @@ export function ChatInterface({ member, initialQuery, recentConversations }: Pro
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const [conversationId, setConversationId] = useState<string | undefined>()
 
-  const { messages, input, handleInputChange, handleSubmit, isLoading, setInput, append, reload, stop } = useChat({
+  const [isLoadingConversation, setIsLoadingConversation] = useState(false)
+
+  const { messages, input, handleInputChange, handleSubmit, isLoading, setInput, append, reload, stop, setMessages } = useChat({
     api: '/api/ai/chat',
     body: { conversationId },
     onResponse: (response) => {
@@ -119,6 +121,27 @@ export function ChatInterface({ member, initialQuery, recentConversations }: Pro
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialQuery])
+
+  const loadConversation = useCallback(async (convId: string) => {
+    if (convId === conversationId || isLoadingConversation) return
+    setIsLoadingConversation(true)
+    try {
+      const res = await fetch(`/api/ai/conversations/${convId}`)
+      if (!res.ok) return
+      const data = await res.json()
+      setMessages(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        data.messages.map((m: any) => ({
+          id: m.id,
+          role: m.role.toLowerCase() as 'user' | 'assistant',
+          content: m.content,
+        }))
+      )
+      setConversationId(convId)
+    } finally {
+      setIsLoadingConversation(false)
+    }
+  }, [conversationId, isLoadingConversation, setMessages])
 
   const handleSuggestion = useCallback((text: string) => {
     append({ role: 'user', content: text })
@@ -165,10 +188,12 @@ export function ChatInterface({ member, initialQuery, recentConversations }: Pro
             recentConversations.map((conv) => (
               <button
                 key={conv.id}
-                onClick={() => { /* TODO: load conversation history */ }}
+                onClick={() => loadConversation(conv.id)}
+                disabled={isLoadingConversation}
                 className={cn(
                   'w-full text-left px-3 py-2.5 rounded-xl hover:bg-gray-50 transition-colors',
-                  conv.id === conversationId && 'bg-indigo-50'
+                  conv.id === conversationId && 'bg-indigo-50',
+                  isLoadingConversation && 'opacity-60 cursor-wait'
                 )}
               >
                 <p className={cn('text-xs font-medium truncate', conv.id === conversationId ? 'text-indigo-700' : 'text-gray-800')}>
